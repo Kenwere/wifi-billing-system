@@ -1,5 +1,7 @@
 import fs from "fs/promises";
 import path from "path";
+import { cert, getApps, initializeApp } from "firebase-admin/app";
+import { getFirestore } from "firebase-admin/firestore";
 import { Database } from "@/lib/types";
 import { nowIso, randomId } from "@/lib/utils";
 
@@ -19,51 +21,17 @@ function hasFirebaseConfig(): boolean {
   );
 }
 
-type FirebaseAdminModules = {
-  app: {
-    cert: (input: { projectId?: string; clientEmail?: string; privateKey?: string }) => unknown;
-    getApps: () => unknown[];
-    initializeApp: (input: { credential: unknown }) => unknown;
-  };
-  firestore: {
-    getFirestore: () => {
-      collection: (name: string) => {
-        doc: (id: string) => {
-          get: () => Promise<{ exists: boolean; data: () => unknown }>;
-          set: (data: unknown, options: { merge: boolean }) => Promise<void>;
-        };
-      };
-    };
-  };
-};
-
-function loadFirebaseAdmin(): FirebaseAdminModules | null {
-  try {
-    const req = eval("require") as (id: string) => unknown;
-    const app = req("firebase-admin/app") as FirebaseAdminModules["app"];
-    const firestore = req("firebase-admin/firestore") as FirebaseAdminModules["firestore"];
-    return { app, firestore };
-  } catch {
-    return null;
-  }
-}
-
 function firestore() {
-  const modules = loadFirebaseAdmin();
-  if (!modules) {
-    throw new Error("firebase-admin is not installed. Run: npm install firebase-admin");
-  }
-  const { app, firestore: fsdb } = modules;
-  if (!app.getApps().length) {
-    app.initializeApp({
-      credential: app.cert({
+  if (!getApps().length) {
+    initializeApp({
+      credential: cert({
         projectId: process.env.FIREBASE_PROJECT_ID,
         clientEmail: process.env.FIREBASE_CLIENT_EMAIL,
         privateKey: process.env.FIREBASE_PRIVATE_KEY?.replace(/\\n/g, "\n"),
       }),
     });
   }
-  return fsdb.getFirestore();
+  return getFirestore();
 }
 
 function seedDatabase(): Database {
