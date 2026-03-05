@@ -9,6 +9,7 @@ const FIREBASE_COLLECTION = "app_state";
 const FIREBASE_DOC_ID = "singleton";
 
 let cache: Database | null = null;
+const IS_PROD = process.env.NODE_ENV === "production";
 
 function hasFirebaseConfig(): boolean {
   return Boolean(
@@ -153,6 +154,9 @@ export async function readDb(): Promise<Database> {
       loaded = await readFromFile();
     }
   } else {
+    if (IS_PROD) {
+      throw new Error("Firebase is required in production. Set FIREBASE_* environment variables.");
+    }
     loaded = await readFromFile();
   }
   cache = normalizeLegacyShape(loaded);
@@ -161,14 +165,21 @@ export async function readDb(): Promise<Database> {
 
 export async function writeDb(next: Database): Promise<void> {
   cache = next;
-  // Always persist locally first as a durable fallback store.
-  await writeToFile(next);
+  // In local development, keep a durable fallback file.
+  if (!IS_PROD) {
+    await writeToFile(next);
+  }
   if (hasFirebaseConfig()) {
     try {
       await writeToFirebase(next);
     } catch {
+      if (IS_PROD) {
+        throw new Error("Failed to write to Firebase in production.");
+      }
       // Local write above already preserved state for retry on next cycle.
     }
+  } else if (IS_PROD) {
+    throw new Error("Firebase is required in production. Set FIREBASE_* environment variables.");
   }
 }
 
