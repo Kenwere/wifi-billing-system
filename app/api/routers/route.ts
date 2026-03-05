@@ -1,7 +1,17 @@
 import { NextRequest, NextResponse } from "next/server";
 import { mutateDb, readDb } from "@/lib/db";
 import { requireRole } from "@/lib/guards";
+import { setupRouter } from "@/lib/mikrotik";
 import { nowIso, randomId } from "@/lib/utils";
+
+function autoAssignRouterHost(existingHosts: string[]): string {
+  const used = new Set(existingHosts);
+  for (let i = 1; i <= 254; i += 1) {
+    const candidate = `192.168.88.${i}`;
+    if (!used.has(candidate)) return candidate;
+  }
+  return `router-${Date.now()}.local`;
+}
 
 export async function GET(request: NextRequest) {
   const gate = await requireRole(request, "support");
@@ -14,12 +24,13 @@ export async function POST(request: NextRequest) {
   const gate = await requireRole(request, "admin");
   if (!gate.ok) return gate.response;
   const body = await request.json();
-  const router = await mutateDb((db) => {
+  const router = await mutateDb(async (db) => {
+    const hostFromBody = String(body.host ?? "").trim();
     const next = {
       id: randomId("router"),
       name: String(body.name ?? ""),
       location: String(body.location ?? ""),
-      host: String(body.host ?? ""),
+      host: hostFromBody || autoAssignRouterHost(db.routers.map((r) => r.host)),
       apiPort: Number(body.apiPort ?? 8728),
       username: String(body.username ?? "admin"),
       password: String(body.password ?? "admin"),
@@ -33,15 +44,16 @@ export async function POST(request: NextRequest) {
       active: true,
       createdAt: nowIso(),
     };
-    if (!next.name || !next.host) throw new Error("name and host are required");
+    if (!next.name) throw new Error("name is required");
     db.routers.push(next);
-    return next;
+    const setupResult = await setupRouter(next);
+    return { router: next, setupResult };
   }).catch((error: Error) => error);
 
   if (router instanceof Error) {
     return NextResponse.json({ error: router.message }, { status: 400 });
   }
-  return NextResponse.json({ router });
+  return NextResponse.json(router);
 }
 
 export async function PATCH(request: NextRequest) {

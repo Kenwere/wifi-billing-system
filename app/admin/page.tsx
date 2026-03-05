@@ -40,7 +40,15 @@ type RouterItem = {
     paystackSecretKey?: string;
   };
 };
-type PackageItem = { id: string; name: string; priceKsh: number; durationMinutes: number; active: boolean };
+type PackageItem = {
+  id: string;
+  name: string;
+  priceKsh: number;
+  durationMinutes: number;
+  speedLimitKbps?: number;
+  dataLimitMb?: number;
+  active: boolean;
+};
 type SessionItem = { id: string; phone: string; macAddress: string; routerId: string; status: string; expiresAt: string };
 type PaymentItem = { id: string; userPhone: string; packageName: string; amountKsh: number; date: string; time: string; status: string };
 type RankingItem = { phone: string; duration: number; connections: number };
@@ -78,6 +86,11 @@ function fmtDate(iso?: string): string {
   return new Date(iso).toLocaleDateString();
 }
 
+function fmtSpeed(kbps?: number): string {
+  if (!kbps) return "Not set";
+  return `${(kbps / 1000).toFixed(1)} Mbps`;
+}
+
 export default function AdminPage() {
   const [me, setMe] = useState<AuthUser | null>(null);
   const [section, setSection] = useState<SectionKey>("overview");
@@ -98,8 +111,22 @@ export default function AdminPage() {
   const [isRegisterMode, setIsRegisterMode] = useState(false);
   const [registerName, setRegisterName] = useState("");
   const [registerBusiness, setRegisterBusiness] = useState("");
-  const [routerForm, setRouterForm] = useState({ name: "", location: "", host: "" });
-  const [packageForm, setPackageForm] = useState({ name: "", priceKsh: 15, durationMinutes: 30, routerId: "" });
+  const [routerForm, setRouterForm] = useState({
+    name: "",
+    location: "",
+    disableHotspotSharing: true,
+    enableBandwidthControl: true,
+    enableSessionLogging: true,
+  });
+  const [packageForm, setPackageForm] = useState({
+    name: "",
+    priceKsh: 10,
+    durationMinutes: 120,
+    speedMbps: 5,
+    unlimitedData: true,
+    dataLimitMb: "",
+    routerId: "",
+  });
   const [paymentConfig, setPaymentConfig] = useState<{
     routerId: string;
     enabledMethods: string[];
@@ -291,7 +318,7 @@ export default function AdminPage() {
               {[
                 ["overview", "Overview"],
                 ["business", "Business"],
-                ["routers", "Routers & Money"],
+                ["routers", "MikroTik & Payments"],
                 ["packages", "Packages"],
                 ["sessions", "Sessions"],
                 ["payments", "User Payments"],
@@ -388,13 +415,24 @@ export default function AdminPage() {
 
             {section === "routers" && (
               <section className="panel" style={{ padding: 14 }}>
-                <h3>Routers and Payment Destination</h3>
+                <h3>MikroTik Setup and Payment Destination</h3>
                 <form
                   className="responsive-form"
                   onSubmit={(e) => {
                     e.preventDefault();
                     void run(async () => {
-                      await jfetch("/api/routers", { method: "POST", body: JSON.stringify(routerForm) });
+                      await jfetch("/api/routers", {
+                        method: "POST",
+                        body: JSON.stringify({
+                          name: routerForm.name,
+                          location: routerForm.location,
+                          setupOptions: {
+                            disableHotspotSharing: routerForm.disableHotspotSharing,
+                            enableBandwidthControl: routerForm.enableBandwidthControl,
+                            enableSessionLogging: routerForm.enableSessionLogging,
+                          },
+                        }),
+                      });
                     });
                   }}
                 >
@@ -408,11 +446,36 @@ export default function AdminPage() {
                     onChange={(e) => setRouterForm({ ...routerForm, location: e.target.value })}
                     placeholder="Location"
                   />
-                  <input
-                    value={routerForm.host}
-                    onChange={(e) => setRouterForm({ ...routerForm, host: e.target.value })}
-                    placeholder="Host/IP"
-                  />
+                  <label style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                    <input
+                      type="checkbox"
+                      checked={routerForm.disableHotspotSharing}
+                      onChange={(e) =>
+                        setRouterForm({ ...routerForm, disableHotspotSharing: e.target.checked })
+                      }
+                    />
+                    Disable hotspot sharing
+                  </label>
+                  <label style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                    <input
+                      type="checkbox"
+                      checked={routerForm.enableBandwidthControl}
+                      onChange={(e) =>
+                        setRouterForm({ ...routerForm, enableBandwidthControl: e.target.checked })
+                      }
+                    />
+                    Enable bandwidth control
+                  </label>
+                  <label style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                    <input
+                      type="checkbox"
+                      checked={routerForm.enableSessionLogging}
+                      onChange={(e) =>
+                        setRouterForm({ ...routerForm, enableSessionLogging: e.target.checked })
+                      }
+                    />
+                    Enable session logging
+                  </label>
                   <button className="btn btn-primary">Add Router</button>
                 </form>
 
@@ -451,16 +514,7 @@ export default function AdminPage() {
                           >
                             Configure Money Destination
                           </button>
-                          <button
-                            className="btn btn-secondary"
-                            onClick={() =>
-                              void run(async () => {
-                                await jfetch(`/api/routers/${r.id}/setup`, { method: "POST" });
-                              })
-                            }
-                          >
-                            Setup MikroTik
-                          </button>
+                          <span style={{ color: "var(--muted)" }}>Auto-configured</span>
                         </td>
                       </tr>
                     ))}
@@ -523,13 +577,47 @@ export default function AdminPage() {
                   onSubmit={(e) => {
                     e.preventDefault();
                     void run(async () => {
-                      await jfetch("/api/packages", { method: "POST", body: JSON.stringify(packageForm) });
+                      await jfetch("/api/packages", {
+                        method: "POST",
+                        body: JSON.stringify({
+                          name: packageForm.name,
+                          priceKsh: packageForm.priceKsh,
+                          durationMinutes: packageForm.durationMinutes,
+                          speedLimitKbps: Math.round(packageForm.speedMbps * 1000),
+                          dataLimitMb: packageForm.unlimitedData
+                            ? undefined
+                            : Number(packageForm.dataLimitMb || 0),
+                          routerId: packageForm.routerId,
+                        }),
+                      });
                     });
                   }}
                 >
                   <input value={packageForm.name} onChange={(e) => setPackageForm({ ...packageForm, name: e.target.value })} placeholder="Package name" />
                   <input type="number" value={packageForm.priceKsh} onChange={(e) => setPackageForm({ ...packageForm, priceKsh: Number(e.target.value) })} placeholder="Price" />
                   <input type="number" value={packageForm.durationMinutes} onChange={(e) => setPackageForm({ ...packageForm, durationMinutes: Number(e.target.value) })} placeholder="Duration in minutes" />
+                  <input
+                    type="number"
+                    value={packageForm.speedMbps}
+                    onChange={(e) => setPackageForm({ ...packageForm, speedMbps: Number(e.target.value) })}
+                    placeholder="Speed (Mbps)"
+                  />
+                  <label style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                    <input
+                      type="checkbox"
+                      checked={packageForm.unlimitedData}
+                      onChange={(e) => setPackageForm({ ...packageForm, unlimitedData: e.target.checked })}
+                    />
+                    Unlimited data
+                  </label>
+                  {!packageForm.unlimitedData && (
+                    <input
+                      type="number"
+                      value={packageForm.dataLimitMb}
+                      onChange={(e) => setPackageForm({ ...packageForm, dataLimitMb: e.target.value })}
+                      placeholder="Data limit (MB)"
+                    />
+                  )}
                   <select value={packageForm.routerId} onChange={(e) => setPackageForm({ ...packageForm, routerId: e.target.value })}>
                     <option value="">Global/All Routers</option>
                     {routers.map((r) => <option key={r.id} value={r.id}>{r.name}</option>)}
@@ -537,13 +625,15 @@ export default function AdminPage() {
                   <button className="btn btn-primary">Add</button>
                 </form>
                 <div className="table-wrap"><table>
-                  <thead><tr><th>Name</th><th>Price</th><th>Time</th><th>Status</th></tr></thead>
+                  <thead><tr><th>Name</th><th>Price</th><th>Time</th><th>Speed</th><th>Data</th><th>Status</th></tr></thead>
                   <tbody>
                     {packages.map((p) => (
                       <tr key={p.id}>
                         <td>{p.name}</td>
                         <td>KSH {p.priceKsh}</td>
                         <td>{fmtDuration(p.durationMinutes)}</td>
+                        <td>{fmtSpeed(p.speedLimitKbps)}</td>
+                        <td>{p.dataLimitMb ? `${p.dataLimitMb} MB` : "Unlimited"}</td>
                         <td>
                           <button
                             className={`btn ${p.active ? "btn-danger" : "btn-secondary"}`}
