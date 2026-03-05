@@ -149,8 +149,13 @@ export async function readDb(): Promise<Database> {
   if (hasFirebaseConfig()) {
     try {
       loaded = await readFromFirebase();
-    } catch {
-      // Fallback keeps service running if Firebase is temporarily unavailable.
+    } catch (error) {
+      if (IS_PROD) {
+        throw new Error(
+          `Firebase read failed in production: ${(error as Error).message}`,
+        );
+      }
+      // In local development, fallback keeps service running if Firebase is temporarily unavailable.
       loaded = await readFromFile();
     }
   } else {
