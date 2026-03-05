@@ -1,8 +1,15 @@
 import { Database } from "@/lib/types";
 
-const BASE_FEE = 500;
-const COMMISSION_THRESHOLD = 10000;
-const COMMISSION_RATE = 0.03;
+function readNumberEnv(name: string, fallback: number): number {
+  const value = process.env[name];
+  if (!value) return fallback;
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : fallback;
+}
+
+const BASE_FEE = readNumberEnv("SUBSCRIPTION_BASE_FEE_KSH", 500);
+const COMMISSION_THRESHOLD = readNumberEnv("SUBSCRIPTION_COMMISSION_THRESHOLD_KSH", 10000);
+const COMMISSION_RATE = readNumberEnv("SUBSCRIPTION_COMMISSION_RATE", 0.03);
 
 export function getPeriodRevenue(db: Database, startIso: string, endIso: string): number {
   return db.payments

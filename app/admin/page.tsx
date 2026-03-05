@@ -104,7 +104,6 @@ export default function AdminPage() {
   const [packages, setPackages] = useState<PackageItem[]>([]);
   const [sessions, setSessions] = useState<SessionItem[]>([]);
   const [payments, setPayments] = useState<PaymentItem[]>([]);
-  const [firebaseStatus, setFirebaseStatus] = useState<string>("");
 
   const [loginEmail, setLoginEmail] = useState("");
   const [loginPassword, setLoginPassword] = useState("");
@@ -191,7 +190,7 @@ export default function AdminPage() {
   }
 
   const trialDaysLeft = overview.subscription?.trialDaysLeft ?? 0;
-  const projectedFee = overview.subscription?.projectedMonthlyFee ?? 500;
+  const projectedFee = overview.subscription?.projectedMonthlyFee ?? 0;
   const ranking = overview.ranking ?? [];
   const earnings = overview.earnings ?? {};
   const stats = overview.stats ?? {};
@@ -397,20 +396,6 @@ export default function AdminPage() {
                     Save Business Profile
                   </button>
                 </form>
-                <div style={{ marginTop: 12, display: "flex", gap: 8, alignItems: "center" }}>
-                  <button
-                    className="btn btn-secondary"
-                    onClick={() =>
-                      void run(async () => {
-                        const status = await jfetch("/api/firebase/status");
-                        setFirebaseStatus(`${status.mode}: ${status.message}`);
-                      })
-                    }
-                  >
-                    Test Firebase Connection
-                  </button>
-                  {firebaseStatus && <span style={{ color: "var(--muted)" }}>{firebaseStatus}</span>}
-                </div>
               </section>
             )}
 
@@ -642,7 +627,7 @@ export default function AdminPage() {
                   <button className="btn btn-primary">Add</button>
                 </form>
                 <div className="table-wrap"><table>
-                  <thead><tr><th>Name</th><th>Price</th><th>Time</th><th>Speed</th><th>Data</th><th>Status</th></tr></thead>
+                  <thead><tr><th>Name</th><th>Price</th><th>Time</th><th>Speed</th><th>Data</th><th>Actions</th></tr></thead>
                   <tbody>
                     {packages.map((p) => (
                       <tr key={p.id}>
@@ -651,7 +636,7 @@ export default function AdminPage() {
                         <td>{fmtDuration(p.durationMinutes)}</td>
                         <td>{fmtSpeed(p.speedLimitKbps)}</td>
                         <td>{p.dataLimitMb ? `${p.dataLimitMb} MB` : "Unlimited"}</td>
-                        <td>
+                        <td style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
                           <button
                             className={`btn ${p.active ? "btn-danger" : "btn-secondary"}`}
                             onClick={() =>
@@ -664,6 +649,18 @@ export default function AdminPage() {
                             }
                           >
                             {p.active ? "Deactivate" : "Activate"}
+                          </button>
+                          <button
+                            className="btn btn-danger"
+                            onClick={() =>
+                              void run(async () => {
+                                await jfetch(`/api/packages?id=${encodeURIComponent(p.id)}`, {
+                                  method: "DELETE",
+                                });
+                              })
+                            }
+                          >
+                            Delete
                           </button>
                         </td>
                       </tr>
