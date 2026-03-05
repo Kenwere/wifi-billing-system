@@ -115,6 +115,7 @@ export default function AdminPage() {
     name: "",
     location: "",
     disableHotspotSharing: true,
+    enableDeviceTracking: true,
     enableBandwidthControl: true,
     enableSessionLogging: true,
   });
@@ -416,6 +417,9 @@ export default function AdminPage() {
             {section === "routers" && (
               <section className="panel" style={{ padding: 14 }}>
                 <h3>MikroTik Setup and Payment Destination</h3>
+                <p style={{ color: "var(--muted)", marginTop: 4 }}>
+                  Script uses <b>ether1</b> as WAN and <b>ether2-ether4</b> as hotspot ports.
+                </p>
                 <form
                   className="responsive-form"
                   onSubmit={(e) => {
@@ -428,6 +432,7 @@ export default function AdminPage() {
                           location: routerForm.location,
                           setupOptions: {
                             disableHotspotSharing: routerForm.disableHotspotSharing,
+                            enableDeviceTracking: routerForm.enableDeviceTracking,
                             enableBandwidthControl: routerForm.enableBandwidthControl,
                             enableSessionLogging: routerForm.enableSessionLogging,
                           },
@@ -459,6 +464,16 @@ export default function AdminPage() {
                   <label style={{ display: "flex", gap: 8, alignItems: "center" }}>
                     <input
                       type="checkbox"
+                      checked={routerForm.enableDeviceTracking}
+                      onChange={(e) =>
+                        setRouterForm({ ...routerForm, enableDeviceTracking: e.target.checked })
+                      }
+                    />
+                    Enable device tracking
+                  </label>
+                  <label style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                    <input
+                      type="checkbox"
                       checked={routerForm.enableBandwidthControl}
                       onChange={(e) =>
                         setRouterForm({ ...routerForm, enableBandwidthControl: e.target.checked })
@@ -476,7 +491,7 @@ export default function AdminPage() {
                     />
                     Enable session logging
                   </label>
-                  <button className="btn btn-primary">Add Router</button>
+                  <button className="btn btn-primary">Add MikroTik</button>
                 </form>
 
                 <div className="table-wrap"><table>
@@ -514,7 +529,9 @@ export default function AdminPage() {
                           >
                             Configure Money Destination
                           </button>
-                          <span style={{ color: "var(--muted)" }}>Auto-configured</span>
+                          <a className="btn btn-primary" href={`/api/routers/${r.id}/script`}>
+                            Download Script
+                          </a>
                         </td>
                       </tr>
                     ))}

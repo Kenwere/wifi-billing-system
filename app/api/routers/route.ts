@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { mutateDb, readDb } from "@/lib/db";
 import { requireRole } from "@/lib/guards";
-import { setupRouter } from "@/lib/mikrotik";
 import { nowIso, randomId } from "@/lib/utils";
 
 function autoAssignRouterHost(existingHosts: string[]): string {
@@ -46,8 +45,7 @@ export async function POST(request: NextRequest) {
     };
     if (!next.name) throw new Error("name is required");
     db.routers.push(next);
-    const setupResult = await setupRouter(next);
-    return { router: next, setupResult };
+    return { router: next };
   }).catch((error: Error) => error);
 
   if (router instanceof Error) {
