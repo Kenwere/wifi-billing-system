@@ -34,6 +34,30 @@ function firestore() {
   return getFirestore();
 }
 
+function sanitizeForStorage<T>(value: T): T {
+  if (Array.isArray(value)) {
+    return value.map((item) => sanitizeForStorage(item)) as T;
+  }
+  if (value instanceof Date) {
+    return value.toISOString() as T;
+  }
+  if (typeof value === "number" && !Number.isFinite(value)) {
+    return null as T;
+  }
+  if (typeof value === "bigint" || typeof value === "function" || typeof value === "symbol") {
+    return null as T;
+  }
+  if (value && typeof value === "object") {
+    const out: Record<string, unknown> = {};
+    for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
+      if (v === undefined) continue;
+      out[k] = sanitizeForStorage(v);
+    }
+    return out as T;
+  }
+  return value;
+}
+
 function seedDatabase(): Database {
   const createdAt = nowIso();
   const trialEnds = new Date();
@@ -74,7 +98,7 @@ async function readFromFirebase(): Promise<Database> {
 async function writeToFirebase(next: Database): Promise<void> {
   const db = firestore();
   const ref = db.collection(FIREBASE_COLLECTION).doc(FIREBASE_DOC_ID);
-  await ref.set({ payload: next, updatedAt: nowIso() }, { merge: true });
+  await ref.set({ payload: sanitizeForStorage(next), updatedAt: nowIso() }, { merge: true });
 }
 
 async function ensureDataFile() {
@@ -94,7 +118,7 @@ async function readFromFile(): Promise<Database> {
 
 async function writeToFile(next: Database): Promise<void> {
   await fs.mkdir(DATA_DIR, { recursive: true });
-  await fs.writeFile(DATA_FILE, JSON.stringify(next, null, 2), "utf8");
+  await fs.writeFile(DATA_FILE, JSON.stringify(sanitizeForStorage(next), null, 2), "utf8");
 }
 
 function normalizeLegacyShape(db: Database): Database {
@@ -145,9 +169,9 @@ export async function writeDb(next: Database): Promise<void> {
   if (hasFirebaseConfig()) {
     try {
       await writeToFirebase(next);
-    } catch {
+    } catch (error) {
       if (IS_PROD) {
-        throw new Error("Failed to write to Firebase in production.");
+        throw new Error(`Failed to write to Firebase in production: ${(error as Error).message}`);
       }
       // Local write above already preserved state for retry on next cycle.
     }
