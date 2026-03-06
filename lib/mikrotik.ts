@@ -491,7 +491,9 @@ export function buildMikrotikScript(router: RouterConfig, appBaseUrl: string): s
     `add list=captive-allowed address=${portalHost} comment="WiFi Billing captive portal"`,
     ...(usesPaystack
       ? [
-          ...paystackHosts.map((host) => `add list=captive-allowed address=${host} comment="Payment processor"`),
+          ...paystackHosts
+            .filter((host) => !host.includes("*")) // Remove wildcards - not allowed in address-list
+            .map((host) => `add list=captive-allowed address=${host} comment="Payment processor"`),
         ]
       : []),
     "",
