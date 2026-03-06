@@ -63,9 +63,13 @@ export async function POST(request: NextRequest) {
   }
 
   const enabledMethods = router.paymentDestination?.enabledMethods ?? [];
-  const method = (requestedMethod && enabledMethods.includes(requestedMethod)
-    ? requestedMethod
-    : enabledMethods[0] ?? "mpesa_till") as PaymentMethod;
+  if (requestedMethod && !enabledMethods.includes(requestedMethod)) {
+    return NextResponse.json(
+      { error: `Selected payment method '${requestedMethod}' is not enabled for this MikroTik.` },
+      { status: 400 },
+    );
+  }
+  const method = (requestedMethod || enabledMethods[0] || "mpesa_till") as PaymentMethod;
 
   if (method === "mpesa_till" || method === "mpesa_paybill" || method === "mpesa_phone") {
     const intentId = randomId("pint");
@@ -136,7 +140,8 @@ export async function POST(request: NextRequest) {
     const callbackUrl =
       process.env.PAYSTACK_PAYMENT_CALLBACK_URL ??
       `${request.nextUrl.origin}/api/payments/paystack/verify`;
-    const email = String(body.email ?? `${phone}@wifi-user.local`).trim();
+    const digits = phone.replace(/\D/g, "");
+    const email = String(body.email ?? `wifi-${digits || Date.now()}@moonconnect.app`).trim();
 
     const initialized = await initializePaystackTransaction({
       email,

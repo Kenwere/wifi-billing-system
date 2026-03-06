@@ -6,6 +6,7 @@ import { useParams, useSearchParams } from "next/navigation";
 import { Navbar } from "@/components/Navbar";
 
 type PackageItem = { id: string; name: string; priceKsh: number; durationMinutes: number };
+type RouterInfo = { paymentDestination?: { enabledMethods?: string[] } };
 
 async function jfetch(url: string, init?: RequestInit) {
   const res = await fetch(url, {
@@ -36,6 +37,7 @@ export default function PortalCheckoutPage() {
   const ipFromQuery = search.get("ip") ?? "";
 
   const [selectedPackage, setSelectedPackage] = useState<PackageItem | null>(null);
+  const [selectedMethod, setSelectedMethod] = useState<string>("mpesa_till");
   const [phone, setPhone] = useState("");
   const [voucherCode, setVoucherCode] = useState("");
   const [message, setMessage] = useState("");
@@ -61,6 +63,9 @@ export default function PortalCheckoutPage() {
         const data = await jfetch(`/api/portal/status?routerId=${routerId}`);
         const found = (data.packages as PackageItem[]).find((p) => p.id === packageId) ?? null;
         setSelectedPackage(found);
+        const router = (data.router ?? {}) as RouterInfo;
+        const methods = router.paymentDestination?.enabledMethods ?? [];
+        setSelectedMethod(methods[0] ?? "mpesa_till");
       } catch (err) {
         setMessage((err as Error).message);
       }
@@ -76,6 +81,7 @@ export default function PortalCheckoutPage() {
       const res = await jfetch("/api/payments/checkout", {
         method: "POST",
         body: JSON.stringify({
+          method: selectedMethod,
           routerId,
           phone,
           macAddress: macFromQuery,
@@ -144,7 +150,11 @@ export default function PortalCheckoutPage() {
               required
             />
             <button className="btn btn-primary" disabled={!selectedPackage || loading}>
-              {loading ? "Sending..." : "Send M-Pesa Prompt"}
+              {loading
+                ? "Processing..."
+                : selectedMethod === "paystack"
+                  ? "Continue to Paystack"
+                  : "Send M-Pesa Prompt"}
             </button>
           </form>
           <div style={{ marginTop: 10 }}>

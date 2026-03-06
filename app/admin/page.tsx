@@ -415,7 +415,6 @@ export default function AdminPage() {
         title="MoonConnect"
         links={[
           { label: "Home", href: "/" },
-          { label: "Documentation", href: "/docs" },
         ]}
         userMenu={{
           name: me.fullName,
@@ -884,6 +883,42 @@ export default function AdminPage() {
                         <td>{fmtSpeed(p.speedLimitKbps)}</td>
                         <td>{p.dataLimitMb ? `${p.dataLimitMb} MB` : "Unlimited"}</td>
                         <td style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                          <button
+                            className="btn btn-secondary"
+                            onClick={() => {
+                              const name = window.prompt("Package name", p.name);
+                              if (name === null) return;
+                              const priceRaw = window.prompt("Price (KSH)", String(p.priceKsh));
+                              if (priceRaw === null) return;
+                              const durationRaw = window.prompt(
+                                "Duration (minutes)",
+                                String(p.durationMinutes),
+                              );
+                              if (durationRaw === null) return;
+
+                              const priceKsh = Number(priceRaw);
+                              const durationMinutes = Number(durationRaw);
+                              if (!name.trim() || Number.isNaN(priceKsh) || priceKsh <= 0 || Number.isNaN(durationMinutes) || durationMinutes <= 0) {
+                                setPackageNotice("Failed to update package: invalid values.");
+                                return;
+                              }
+
+                              void run(async () => {
+                                await jfetch("/api/packages", {
+                                  method: "PATCH",
+                                  body: JSON.stringify({
+                                    id: p.id,
+                                    name: name.trim(),
+                                    priceKsh,
+                                    durationMinutes,
+                                  }),
+                                });
+                                setPackageNotice("Package updated successfully.");
+                              });
+                            }}
+                          >
+                            Edit
+                          </button>
                           <button
                             className={`btn ${p.active ? "btn-danger" : "btn-secondary"}`}
                             onClick={() =>
