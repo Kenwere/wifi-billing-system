@@ -29,8 +29,10 @@ type JsonRow<T> = {
 };
 
 let cache: Database | null = null;
+let cacheAtMs = 0;
 const IS_PROD = process.env.NODE_ENV === "production";
 const ALLOW_LOCAL_FALLBACK = process.env.SUPABASE_ALLOW_LOCAL_FALLBACK === "true";
+const CACHE_TTL_MS = IS_PROD ? 0 : 1000;
 
 function hasSupabaseConfig(): boolean {
   return Boolean(process.env.SUPABASE_URL && process.env.SUPABASE_SERVICE_ROLE_KEY);
@@ -294,7 +296,7 @@ function normalizeLegacyShape(db: Database): Database {
 }
 
 export async function readDb(): Promise<Database> {
-  if (cache) return cache;
+  if (cache && Date.now() - cacheAtMs < CACHE_TTL_MS) return cache;
   let loaded: Database;
 
   if (hasSupabaseConfig()) {
@@ -314,6 +316,7 @@ export async function readDb(): Promise<Database> {
   }
 
   cache = normalizeLegacyShape(loaded);
+  cacheAtMs = Date.now();
   return cache;
 }
 
@@ -326,16 +329,19 @@ export async function writeDb(next: Database): Promise<void> {
     try {
       await writeToSupabase(next);
       cache = next;
+      cacheAtMs = Date.now();
     } catch (error) {
       if (IS_PROD || !ALLOW_LOCAL_FALLBACK) {
         throw new Error(`Failed to write to Supabase: ${(error as Error).message}`);
       }
       cache = null;
+      cacheAtMs = 0;
     }
   } else if (IS_PROD) {
     throw new Error("Supabase is required in production. Set SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY.");
   } else {
     cache = next;
+    cacheAtMs = Date.now();
   }
 }
 
