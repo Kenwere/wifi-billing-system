@@ -29,8 +29,7 @@ export async function GET(request: NextRequest, context: Params) {
 
   const appBaseUrl = process.env.APP_BASE_URL ?? "https://wifi-billing-system-kappa.vercel.app";
   const script = buildMikrotikScript(mikrotik, appBaseUrl);
-  const shortId = mikrotik.id.replace(/[^a-zA-Z0-9]/g, "").slice(-6).toLowerCase();
-  const fileName = `${normalizeFileName(mikrotik.name) || "mk"}-${shortId || "script"}.rsc`;
+  const fileName = "moonconnect.rsc";
 
   return new NextResponse(script, {
     status: 200,

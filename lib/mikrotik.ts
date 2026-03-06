@@ -241,43 +241,89 @@ export async function setupRouter(router: RouterConfig): Promise<MikrotikSetupRe
   };
 }
 
+export async function ensureUserInRestrictedList(
+  router: RouterConfig,
+  ipAddress: string,
+): Promise<void> {
+  if (isLiveMode() && ipAddress && ipAddress !== "0.0.0.0") {
+    await withRouterClient(router, async (client) => {
+      // Check if already in active list
+      const activeIds = await findIds(client, "/ip/firewall/address-list", [
+        "?list=wifi-billing-active",
+        `?address=${ipAddress}`,
+      ]);
+      if (activeIds.length > 0) return; // Already has access
+
+      // Check if already in restricted list
+      const restrictedIds = await findIds(client, "/ip/firewall/address-list", [
+        "?list=wifi-billing-restricted",
+        `?address=${ipAddress}`,
+      ]);
+      if (restrictedIds.length > 0) return; // Already restricted
+
+      // Add to restricted list
+      const addRestricted = await client.command([
+        "/ip/firewall/address-list/add",
+        "=list=wifi-billing-restricted",
+        `=address=${ipAddress}`,
+        "=comment=new-user",
+      ]);
+      const addTrap = addRestricted.find((r) => r.type === "!trap");
+      if (addTrap) {
+        console.warn(`Failed to add ${ipAddress} to restricted list:`, addTrap.attrs.message);
+      } else {
+        console.log(`[MikroTik] Added ${ipAddress} to restricted list on ${router.name}`);
+      }
+    });
+  }
+}
+
 export async function grantInternetAccess(
   router: RouterConfig,
   session: Session,
 ): Promise<{ ok: boolean; message: string }> {
   if (isLiveMode()) {
-    const mac = session.macAddress.toUpperCase();
+    const ip = session.ipAddress;
+    if (!ip || ip === "0.0.0.0") {
+      throw new Error("No valid IP address for session");
+    }
+
     await withRouterClient(router, async (client) => {
-      // Ensure clean state then add bypass binding for this device.
-      const oldBindings = await findIds(client, "/ip/hotspot/ip-binding", [`?mac-address=${mac}`]);
-      for (const id of oldBindings) {
-        await client.command(["/ip/hotspot/ip-binding/remove", `=.id=${id}`]);
-      }
-      const bindingWords = [
-        "/ip/hotspot/ip-binding/add",
-        `=mac-address=${mac}`,
-        "=type=bypassed",
-        `=comment=moonconnect:${session.id}`,
-      ];
-      if (session.ipAddress && session.ipAddress !== "0.0.0.0") {
-        bindingWords.push(`=address=${session.ipAddress}`);
-      }
-      const addBinding = await client.command(bindingWords);
-      const addTrap = addBinding.find((r) => r.type === "!trap");
-      if (addTrap) {
-        throw new Error(addTrap.attrs.message || "Failed to add hotspot ip-binding");
+      // Remove from restricted list if present
+      const restrictedIds = await findIds(client, "/ip/firewall/address-list", [
+        "?list=wifi-billing-restricted",
+        `?address=${ip}`,
+      ]);
+      for (const id of restrictedIds) {
+        await client.command(["/ip/firewall/address-list/remove", `=.id=${id}`]);
       }
 
-      // Kick active unauthenticated entry to force immediate policy re-evaluation.
-      const activeIds = await findIds(client, "/ip/hotspot/active", [`?mac-address=${mac}`]);
+      // Add to active list (remove old entries first)
+      const activeIds = await findIds(client, "/ip/firewall/address-list", [
+        "?list=wifi-billing-active",
+        `?address=${ip}`,
+      ]);
       for (const id of activeIds) {
-        await client.command(["/ip/hotspot/active/remove", `=.id=${id}`]);
+        await client.command(["/ip/firewall/address-list/remove", `=.id=${id}`]);
       }
+
+      const addActive = await client.command([
+        "/ip/firewall/address-list/add",
+        "=list=wifi-billing-active",
+        `=address=${ip}`,
+        `=comment=session:${session.id}`,
+      ]);
+      const addTrap = addActive.find((r) => r.type === "!trap");
+      if (addTrap) {
+        throw new Error(addTrap.attrs.message || "Failed to add active address list entry");
+      }
+
+      console.log(`[MikroTik] Granted internet access to ${ip} on ${router.name}`);
     });
   }
   return {
     ok: true,
-    message: `Access granted on ${router.name} for ${session.macAddress}`,
+    message: `Access granted on ${router.name} for ${session.ipAddress}`,
   };
 }
 
@@ -286,25 +332,46 @@ export async function disconnectInternetAccess(
   macAddress: string,
 ): Promise<{ ok: boolean; message: string }> {
   if (isLiveMode()) {
-    const mac = macAddress.toUpperCase();
     await withRouterClient(router, async (client) => {
-      const bindingIds = await findIds(client, "/ip/hotspot/ip-binding", [`?mac-address=${mac}`]);
-      for (const id of bindingIds) {
-        await client.command(["/ip/hotspot/ip-binding/remove", `=.id=${id}`]);
-      }
-      const activeIds = await findIds(client, "/ip/hotspot/active", [`?mac-address=${mac}`]);
-      for (const id of activeIds) {
-        await client.command(["/ip/hotspot/active/remove", `=.id=${id}`]);
-      }
-      const cookieIds = await findIds(client, "/ip/hotspot/cookie", [`?mac-address=${mac}`]);
-      for (const id of cookieIds) {
-        await client.command(["/ip/hotspot/cookie/remove", `=.id=${id}`]);
+      // Find sessions for this MAC address
+      const db = await import("@/lib/db").then(m => m.readDb());
+      const sessions = db.sessions.filter(s =>
+        s.macAddress.toLowerCase() === macAddress.toLowerCase() &&
+        s.routerId === router.id &&
+        s.status === "active"
+      );
+
+      // Remove all IPs associated with this MAC from active list
+      for (const session of sessions) {
+        if (session.ipAddress && session.ipAddress !== "0.0.0.0") {
+          const activeIds = await findIds(client, "/ip/firewall/address-list", [
+            "?list=wifi-billing-active",
+            `?address=${session.ipAddress}`,
+          ]);
+          for (const id of activeIds) {
+            await client.command(["/ip/firewall/address-list/remove", `=.id=${id}`]);
+          }
+
+          // Add back to restricted list
+          const restrictedIds = await findIds(client, "/ip/firewall/address-list", [
+            "?list=wifi-billing-restricted",
+            `?address=${session.ipAddress}`,
+          ]);
+          if (restrictedIds.length === 0) {
+            await client.command([
+              "/ip/firewall/address-list/add",
+              "=list=wifi-billing-restricted",
+              `=address=${session.ipAddress}`,
+              `=comment=disconnected:${session.id}`,
+            ]);
+          }
+        }
       }
     });
   }
   return {
     ok: true,
-    message: `Disconnected ${macAddress} on ${router.name}`,
+    message: `Access revoked on ${router.name} for ${macAddress}`,
   };
 }
 
@@ -409,13 +476,39 @@ export function buildMikrotikScript(router: RouterConfig, appBaseUrl: string): s
           `:log warning "MIKROTIK_API_ALLOWLIST_IPS not set; API 8728 exposed until you add firewall allowlist rules."`,
         ]),
     "",
-    "# 5) Hotspot basic config",
+    "# 5) Hotspot config with firewall-based access control",
     "/ip hotspot profile",
-    `add name=hsprof-wifi-billing hotspot-address=10.10.10.1 html-directory=hotspot login-by=http-chap,http-pap,cookie`,
+    `add name=hsprof-wifi-billing hotspot-address=10.10.10.1 html-directory=hotspot login-by=http-chap,http-pap,cookie use-radius=no`,
     `/ip hotspot add name=hotspot1 interface=${lanBridge} address-pool=hs-pool profile=hsprof-wifi-billing disabled=no`,
     "/ip hotspot user profile",
     `add name=wifi-billing-default shared-users=${router.setupOptions.disableHotspotSharing ? 1 : 3} ` +
       `rate-limit=${router.setupOptions.enableBandwidthControl ? "5M/5M" : "0/0"}`,
+    "",
+    "# 5b) Firewall-based access control (REQUIRED for API-based network unlock)",
+    "/ip firewall address-list",
+    `add list=wifi-billing-active comment="WiFi Billing - Active users (full internet)"`,
+    `add list=wifi-billing-restricted comment="WiFi Billing - Restricted users (captive only)"`,
+    `add list=captive-allowed address=${portalHost} comment="WiFi Billing captive portal"`,
+    `add list=captive-allowed address=*.${portalHost} comment="WiFi Billing captive portal API"`,
+    ...(usesPaystack
+      ? [
+          ...paystackHosts.map((host) => `add list=captive-allowed address=${host} comment="Payment processor"`),
+        ]
+      : []),
+    "",
+    "# Allow DNS for restricted users",
+    "/ip firewall filter add chain=forward action=accept src-address-list=wifi-billing-restricted protocol=udp dst-port=53 comment=\"WiFi Billing: allow DNS UDP for restricted\"",
+    "/ip firewall filter add chain=forward action=accept src-address-list=wifi-billing-restricted protocol=tcp dst-port=53 comment=\"WiFi Billing: allow DNS TCP for restricted\"",
+    "",
+    "# Allow captive portal access for restricted users",
+    "/ip firewall filter add chain=forward action=accept src-address-list=wifi-billing-restricted dst-address-list=captive-allowed dst-port=80,443 protocol=tcp comment=\"WiFi Billing: allow captive portal for restricted\"",
+    "",
+    "# Block all other traffic for restricted users",
+    "/ip firewall filter add chain=forward action=drop src-address-list=wifi-billing-restricted comment=\"WiFi Billing: block internet for restricted users\"",
+    "",
+    "# Redirect HTTP/HTTPS to captive portal for restricted users",
+    "/ip firewall nat add chain=dstnat protocol=tcp dst-port=80 src-address-list=wifi-billing-restricted action=redirect to-ports=80 comment=\"WiFi Billing: redirect HTTP to captive\"",
+    "/ip firewall nat add chain=dstnat protocol=tcp dst-port=443 src-address-list=wifi-billing-restricted action=redirect to-ports=80 comment=\"WiFi Billing: redirect HTTPS to captive\"",
     "",
     "# 6) Walled garden: allow payment + backend while user is unauthenticated",
     "/ip hotspot walled-garden",

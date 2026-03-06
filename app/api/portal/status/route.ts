@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { expireAndDisconnectSessions, findReusableSession, findReusableSessionByDevice } from "@/lib/billing";
 import { readDb } from "@/lib/db";
-import { grantInternetAccess } from "@/lib/mikrotik";
+import { grantInternetAccess, ensureUserInRestrictedList } from "@/lib/mikrotik";
 import { normalizeMac, sanitizePhone } from "@/lib/utils";
 
 export async function GET(request: NextRequest) {
@@ -9,6 +9,7 @@ export async function GET(request: NextRequest) {
   const phone = request.nextUrl.searchParams.get("phone") ?? "";
   const macAddress =
     request.nextUrl.searchParams.get("macAddress") ?? request.nextUrl.searchParams.get("mac") ?? "";
+  const clientIp = request.nextUrl.searchParams.get("ip") ?? "";
 
   await expireAndDisconnectSessions();
 
@@ -52,6 +53,9 @@ export async function GET(request: NextRequest) {
   if (!subscription.locked && activeSession) {
     await grantInternetAccess(router, activeSession).catch(() => null);
     autoConnected = true;
+  } else if (macAddress && clientIp) {
+    // New user - ensure they're in restricted list for captive portal
+    await ensureUserInRestrictedList(router, clientIp).catch(() => null);
   }
 
   return NextResponse.json({
