@@ -40,7 +40,7 @@ export async function GET(request: NextRequest) {
 
   const activeSession = byPhoneAndMac ?? byDeviceOnly;
   let autoConnected = false;
-  if (activeSession) {
+  if (!subscription.locked && activeSession) {
     await grantInternetAccess(router, activeSession).catch(() => null);
     autoConnected = true;
   }
@@ -50,7 +50,7 @@ export async function GET(request: NextRequest) {
     router,
     packages,
     subscription,
-    activeSession,
+    activeSession: subscription.locked ? null : activeSession,
     autoConnected,
   });
 }

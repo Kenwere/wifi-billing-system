@@ -60,7 +60,7 @@ type VoucherItem = {
   code: string;
   packageId: string;
   expiryDate: string;
-  status: "used" | "unused";
+  status: "used" | "unused" | "inactive";
   sentToPhone?: string;
   usedByPhone?: string;
   usedAt?: string;
@@ -103,6 +103,17 @@ function fmtDate(iso?: string): string {
 function fmtSpeed(kbps?: number): string {
   if (!kbps) return "Not set";
   return `${(kbps / 1000).toFixed(1)} Mbps`;
+}
+
+function formatRemaining(endsAtIso?: string, nowMs = Date.now()): string {
+  if (!endsAtIso) return "0d 0h 0m";
+  const deltaMs = new Date(endsAtIso).getTime() - nowMs;
+  if (deltaMs <= 0) return "0d 0h 0m";
+  const totalMinutes = Math.floor(deltaMs / (1000 * 60));
+  const days = Math.floor(totalMinutes / (60 * 24));
+  const hours = Math.floor((totalMinutes % (60 * 24)) / 60);
+  const minutes = totalMinutes % 60;
+  return `${days}d ${hours}h ${minutes}m`;
 }
 
 export default function AdminPage() {
@@ -160,11 +171,14 @@ export default function AdminPage() {
   const [usersImportPayload, setUsersImportPayload] = useState("");
   const [usersImportResult, setUsersImportResult] = useState("");
   const [packageNotice, setPackageNotice] = useState("");
+  const [voucherNotice, setVoucherNotice] = useState("");
+  const [logoUploadNotice, setLogoUploadNotice] = useState("");
   const [voucherForm, setVoucherForm] = useState({
     packageId: "",
     expiryDate: "",
     sentToPhone: "",
   });
+  const [nowTick, setNowTick] = useState(Date.now());
 
   async function loadAll() {
     const [ov, rt, pk, vc, us, ss, pl, tn] = await Promise.all([
@@ -209,6 +223,11 @@ export default function AdminPage() {
     })();
   }, []);
 
+  useEffect(() => {
+    const timer = setInterval(() => setNowTick(Date.now()), 30000);
+    return () => clearInterval(timer);
+  }, []);
+
   async function run(action: () => Promise<void>, options?: { reload?: boolean }) {
     setBusy(true);
     setError("");
@@ -225,10 +244,18 @@ export default function AdminPage() {
   }
 
   const trialDaysLeft = overview.subscription?.trialDaysLeft ?? 0;
+  const trialCountdown = formatRemaining(overview.subscription?.trialEndsAt, nowTick);
+  const isAccountLocked = Boolean(overview.subscription?.state?.locked);
   const projectedFee = overview.subscription?.projectedMonthlyFee ?? 0;
   const ranking = overview.ranking ?? [];
   const earnings = overview.earnings ?? {};
   const stats = overview.stats ?? {};
+
+  useEffect(() => {
+    if (isAccountLocked && section !== "subscription") {
+      setSection("subscription");
+    }
+  }, [isAccountLocked, section]);
 
   const revenueChart = useMemo(
     () => [
@@ -410,7 +437,7 @@ export default function AdminPage() {
             <div className="panel" style={{ padding: 10, marginTop: 10, borderRadius: 8 }}>
               <div style={{ fontSize: "0.85rem", color: "var(--muted)" }}>Trial Days Left</div>
               <div style={{ fontSize: "1.25rem", fontWeight: 700, color: trialDaysLeft <= 3 ? "var(--danger)" : "var(--text)" }}>
-                {trialDaysLeft}
+                {trialCountdown}
               </div>
               <div style={{ fontSize: "0.8rem", color: "var(--muted)" }}>
                 Next monthly fee: KSH {Math.round(projectedFee)}
@@ -432,6 +459,7 @@ export default function AdminPage() {
                 <button
                   key={key}
                   className={`btn ${section === key ? "btn-primary" : "btn-secondary"}`}
+                  disabled={isAccountLocked && key !== "subscription"}
                   onClick={() => {
                     setSection(key as SectionKey);
                     setSidebarOpen(false);
@@ -444,6 +472,14 @@ export default function AdminPage() {
           </aside>
 
           <section className="grid admin-content">
+            {isAccountLocked && section !== "subscription" && (
+              <section className="panel" style={{ padding: 14 }}>
+                <h3 style={{ color: "var(--danger)" }}>Dashboard Locked</h3>
+                <p style={{ margin: 0, color: "var(--muted)" }}>
+                  Trial/payment period has ended. Complete subscription payment to unlock full dashboard access and resume user connections.
+                </p>
+              </section>
+            )}
             {section === "overview" && (
               <>
                 <div className="grid" style={{ gridTemplateColumns: "repeat(auto-fit,minmax(160px,1fr))" }}>
@@ -496,6 +532,26 @@ export default function AdminPage() {
                     onChange={(e) => setTenant({ ...tenant, businessLogoUrl: e.target.value })}
                     placeholder="Logo URL"
                   />
+                  <input
+                    type="file"
+                    accept="image/*"
+                    onChange={(e) => {
+                      const file = e.target.files?.[0];
+                      if (!file) return;
+                      if (file.size > 1024 * 1024) {
+                        setLogoUploadNotice("Image is too large. Use a file smaller than 1MB.");
+                        return;
+                      }
+                      const reader = new FileReader();
+                      reader.onload = () => {
+                        const result = String(reader.result ?? "");
+                        setTenant((prev) => ({ ...prev, businessLogoUrl: result }));
+                        setLogoUploadNotice("Logo image loaded. Click Save Business Profile.");
+                      };
+                      reader.readAsDataURL(file);
+                    }}
+                  />
+                  {logoUploadNotice && <p style={{ margin: 0, color: "var(--muted)" }}>{logoUploadNotice}</p>}
                   <button className="btn btn-primary" disabled={busy}>
                     Save Business Profile
                   </button>
@@ -696,7 +752,7 @@ export default function AdminPage() {
                         if (!packageForm.durationMinutes || Number(packageForm.durationMinutes) <= 0) {
                           throw new Error("Duration must be greater than 0");
                         }
-                        await jfetch("/api/packages", {
+                        const created = await jfetch("/api/packages", {
                           method: "POST",
                           body: JSON.stringify({
                             name: packageForm.name,
@@ -711,6 +767,9 @@ export default function AdminPage() {
                             routerId: packageForm.routerId,
                           }),
                         });
+                        if (created?.package) {
+                          setPackages((prev) => [created.package as PackageItem, ...prev]);
+                        }
                         await loadAll();
                         setPackageForm({
                           name: "",
@@ -832,6 +891,7 @@ export default function AdminPage() {
                         }),
                       });
                       setVoucherForm({ packageId: "", expiryDate: "", sentToPhone: "" });
+                      setVoucherNotice("Voucher created successfully.");
                     });
                   }}
                 >
@@ -862,6 +922,11 @@ export default function AdminPage() {
                     Create Voucher
                   </button>
                 </form>
+                {voucherNotice && (
+                  <p style={{ color: voucherNotice.startsWith("Failed") ? "var(--danger)" : "var(--accent)", marginTop: 8 }}>
+                    {voucherNotice}
+                  </p>
+                )}
 
                 <div className="table-wrap" style={{ marginTop: 12 }}>
                   <table>
@@ -885,7 +950,45 @@ export default function AdminPage() {
                             <td>{new Date(v.expiryDate).toLocaleDateString()}</td>
                             <td>{v.status}</td>
                             <td>{v.sentToPhone ?? "-"}</td>
-                            <td>{v.usedByPhone ?? "-"}</td>
+                            <td style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+                              <span>{v.usedByPhone ?? "-"}</span>
+                              <button
+                                type="button"
+                                className={`btn ${v.status === "inactive" ? "btn-secondary" : "btn-danger"}`}
+                                onClick={() =>
+                                  void run(async () => {
+                                    await jfetch("/api/vouchers", {
+                                      method: "PATCH",
+                                      body: JSON.stringify({
+                                        id: v.id,
+                                        action: v.status === "inactive" ? "activate" : "deactivate",
+                                      }),
+                                    });
+                                    setVoucherNotice(
+                                      v.status === "inactive"
+                                        ? "Voucher activated successfully."
+                                        : "Voucher deactivated successfully.",
+                                    );
+                                  })
+                                }
+                              >
+                                {v.status === "inactive" ? "Activate" : "Deactivate"}
+                              </button>
+                              <button
+                                type="button"
+                                className="btn btn-danger"
+                                onClick={() =>
+                                  void run(async () => {
+                                    await jfetch(`/api/vouchers?id=${encodeURIComponent(v.id)}`, {
+                                      method: "DELETE",
+                                    });
+                                    setVoucherNotice("Voucher deleted successfully.");
+                                  })
+                                }
+                              >
+                                Delete
+                              </button>
+                            </td>
                           </tr>
                         );
                       })}

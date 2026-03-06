@@ -132,7 +132,7 @@ export interface Voucher {
   code: string;
   packageId: string;
   expiryDate: string;
-  status: "used" | "unused";
+  status: "used" | "unused" | "inactive";
   sentToPhone?: string;
   usedByPhone?: string;
   usedAt?: string;

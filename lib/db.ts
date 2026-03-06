@@ -12,6 +12,7 @@ const FIREBASE_DOC_ID = "singleton";
 
 let cache: Database | null = null;
 const IS_PROD = process.env.NODE_ENV === "production";
+const ALLOW_LOCAL_FALLBACK = process.env.FIREBASE_ALLOW_LOCAL_FALLBACK === "true";
 
 function hasFirebaseConfig(): boolean {
   return Boolean(
@@ -145,9 +146,9 @@ export async function readDb(): Promise<Database> {
     try {
       loaded = await readFromFirebase();
     } catch (error) {
-      if (IS_PROD) {
+      if (IS_PROD || !ALLOW_LOCAL_FALLBACK) {
         throw new Error(
-          `Firebase read failed in production: ${(error as Error).message}`,
+          `Firebase read failed: ${(error as Error).message}`,
         );
       }
       // In local development, fallback keeps service running if Firebase is temporarily unavailable.
@@ -173,8 +174,8 @@ export async function writeDb(next: Database): Promise<void> {
     try {
       await writeToFirebase(next);
     } catch (error) {
-      if (IS_PROD) {
-        throw new Error(`Failed to write to Firebase in production: ${(error as Error).message}`);
+      if (IS_PROD || !ALLOW_LOCAL_FALLBACK) {
+        throw new Error(`Failed to write to Firebase: ${(error as Error).message}`);
       }
       // Local write above already preserved state for retry on next cycle.
     }

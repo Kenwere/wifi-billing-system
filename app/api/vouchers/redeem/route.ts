@@ -41,9 +41,11 @@ export async function POST(request: NextRequest) {
     : buildPseudoMac(`${phone}|${routerId}|${ipAddress}|${request.headers.get("user-agent") ?? ""}`);
 
   const voucher = await mutateDb(async (db) => {
-    const item = db.vouchers.find((v) => v.code === code);
+    const itemIndex = db.vouchers.findIndex((v) => v.code === code);
+    if (itemIndex < 0) throw new Error("Voucher not found");
+    const item = db.vouchers[itemIndex];
     if (!item) throw new Error("Voucher not found");
-    if (item.status === "used") throw new Error("Voucher already used");
+    if (item.status === "inactive") throw new Error("Voucher is deactivated");
     if (new Date(item.expiryDate) < new Date()) throw new Error("Voucher expired");
 
     const router = db.routers.find((r) => r.id === routerId);
@@ -78,10 +80,9 @@ export async function POST(request: NextRequest) {
       : normalizeMac(lastSession?.macAddress || knownUser?.macAddress || macAddress);
     const resolvedIp = ipAddress || lastSession?.ipAddress || knownUser?.lastIp || "0.0.0.0";
 
-    item.status = "used";
-    item.usedByPhone = phone;
-    item.usedAt = new Date().toISOString();
-    return { voucher: item, macAddress: resolvedMac, ipAddress: resolvedIp };
+    const packageId = item.packageId;
+    db.vouchers.splice(itemIndex, 1);
+    return { packageId, macAddress: resolvedMac, ipAddress: resolvedIp };
   }).catch((error: Error) => error);
 
   if (voucher instanceof Error) {
@@ -92,7 +93,7 @@ export async function POST(request: NextRequest) {
     phone,
     macAddress: voucher.macAddress,
     ipAddress: voucher.ipAddress,
-    packageId: voucher.voucher.packageId,
+    packageId: voucher.packageId,
     routerId,
     method: "other",
   }).catch((error: Error) => error);
