@@ -54,12 +54,14 @@ type SessionItem = { id: string; phone: string; macAddress: string; routerId: st
 type PaymentItem = { id: string; userPhone: string; packageName: string; amountKsh: number; date: string; time: string; status: string };
 type RankingItem = { phone: string; duration: number; connections: number };
 type Tenant = { businessName: string; businessLogoUrl?: string };
+type HotspotUserItem = { id: string; phone: string; macAddress: string; lastIp: string; updatedAt: string };
 
 type SectionKey =
   | "overview"
   | "business"
   | "routers"
   | "packages"
+  | "users"
   | "sessions"
   | "payments"
   | "ranking"
@@ -103,6 +105,7 @@ export default function AdminPage() {
   const [tenant, setTenant] = useState<Tenant>({ businessName: "", businessLogoUrl: "" });
   const [routers, setRouters] = useState<RouterItem[]>([]);
   const [packages, setPackages] = useState<PackageItem[]>([]);
+  const [hotspotUsers, setHotspotUsers] = useState<HotspotUserItem[]>([]);
   const [sessions, setSessions] = useState<SessionItem[]>([]);
   const [payments, setPayments] = useState<PaymentItem[]>([]);
 
@@ -112,7 +115,7 @@ export default function AdminPage() {
   const [authStage, setAuthStage] = useState<"credentials" | "verify">("credentials");
   const [registerName, setRegisterName] = useState("");
   const [registerBusiness, setRegisterBusiness] = useState("");
-  const [verificationEmail, setVerificationEmail] = useState("");
+  const [verificationEmail] = useState("");
   const [verificationCode, setVerificationCode] = useState("");
   const [authNotice, setAuthNotice] = useState("");
   const [routerForm, setRouterForm] = useState({
@@ -141,12 +144,16 @@ export default function AdminPage() {
     paystackPublicKey: string;
     paystackSecretKey: string;
   } | null>(null);
+  const [usersImportMode, setUsersImportMode] = useState<"merge" | "replace">("merge");
+  const [usersImportPayload, setUsersImportPayload] = useState("");
+  const [usersImportResult, setUsersImportResult] = useState("");
 
   async function loadAll() {
-    const [ov, rt, pk, ss, pl, tn] = await Promise.all([
+    const [ov, rt, pk, us, ss, pl, tn] = await Promise.all([
       jfetch("/api/analytics/overview"),
       jfetch("/api/routers"),
       jfetch("/api/packages"),
+      jfetch("/api/users"),
       jfetch("/api/sessions"),
       jfetch("/api/payments/logs"),
       jfetch("/api/tenant"),
@@ -154,6 +161,7 @@ export default function AdminPage() {
     setOverview(ov as Overview);
     setRouters((rt as { routers: RouterItem[] }).routers ?? []);
     setPackages((pk as { packages: PackageItem[] }).packages ?? []);
+    setHotspotUsers((us as { users: HotspotUserItem[] }).users ?? []);
     setSessions((ss as { sessions: SessionItem[] }).sessions ?? []);
     setPayments((pl as { payments: PaymentItem[] }).payments ?? []);
     const currentTenant = (tn as { tenant: Tenant }).tenant;
@@ -299,16 +307,9 @@ export default function AdminPage() {
                           method: "POST",
                           body: JSON.stringify(payload),
                         });
-                        if (isRegisterMode && auth.requiresVerification) {
-                          setVerificationEmail(String(auth.email ?? loginEmail));
-                          setVerificationCode("");
-                          setAuthNotice(String(auth.message ?? "OTP sent."));
-                          setAuthStage("verify");
-                          return;
-                        }
                         setMe(auth.user as AuthUser);
                       },
-                      { reload: !isRegisterMode },
+                      { reload: true },
                     );
                   }}
                 >
@@ -401,6 +402,7 @@ export default function AdminPage() {
                 ["business", "Business"],
                 ["routers", "MikroTik & Payments"],
                 ["packages", "Packages"],
+                ["users", "Users Import/Export"],
                 ["sessions", "Sessions"],
                 ["payments", "User Payments"],
                 ["ranking", "User Ranking"],
@@ -748,6 +750,85 @@ export default function AdminPage() {
                     ))}
                   </tbody>
                 </table></div>
+              </section>
+            )}
+
+            {section === "users" && (
+              <section className="panel" style={{ padding: 14 }}>
+                <h3>Hotspot Users Import/Export</h3>
+                <p style={{ color: "var(--muted)", marginTop: 4 }}>
+                  Export all hotspot users, then import later using JSON payload.
+                </p>
+                <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 10 }}>
+                  <a className="btn btn-primary" href="/api/users/export">
+                    Export Users (JSON)
+                  </a>
+                  <span style={{ color: "var(--muted)", alignSelf: "center" }}>
+                    Current users: {hotspotUsers.length}
+                  </span>
+                </div>
+                <div className="grid" style={{ marginTop: 12 }}>
+                  <select
+                    value={usersImportMode}
+                    onChange={(e) => setUsersImportMode(e.target.value as "merge" | "replace")}
+                  >
+                    <option value="merge">Merge with existing users</option>
+                    <option value="replace">Replace all existing users</option>
+                  </select>
+                  <textarea
+                    value={usersImportPayload}
+                    onChange={(e) => setUsersImportPayload(e.target.value)}
+                    placeholder='Paste exported JSON here (array or {"users":[...]})'
+                    style={{
+                      width: "100%",
+                      minHeight: 180,
+                      border: "1px solid var(--line)",
+                      borderRadius: 10,
+                      padding: 12,
+                      fontFamily: "monospace",
+                      fontSize: 12,
+                    }}
+                  />
+                  <button
+                    className="btn btn-secondary"
+                    onClick={() => {
+                      const picker = document.createElement("input");
+                      picker.type = "file";
+                      picker.accept = "application/json,.json";
+                      picker.onchange = async () => {
+                        const file = picker.files?.[0];
+                        if (!file) return;
+                        const text = await file.text();
+                        setUsersImportPayload(text);
+                      };
+                      picker.click();
+                    }}
+                  >
+                    Load JSON File
+                  </button>
+                  <button
+                    className="btn btn-primary"
+                    disabled={busy || !usersImportPayload.trim()}
+                    onClick={() =>
+                      void run(async () => {
+                        const parsed = JSON.parse(usersImportPayload);
+                        const result = await jfetch("/api/users/import", {
+                          method: "POST",
+                          body: JSON.stringify({
+                            mode: usersImportMode,
+                            payload: parsed,
+                          }),
+                        });
+                        setUsersImportResult(
+                          `Imported ${result.imported}. Users before: ${result.before}, after: ${result.after}.`,
+                        );
+                      })
+                    }
+                  >
+                    Import Users
+                  </button>
+                  {usersImportResult && <p style={{ color: "var(--muted)", margin: 0 }}>{usersImportResult}</p>}
+                </div>
               </section>
             )}
 

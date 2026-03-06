@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
+import { createToken, setAuthCookie } from "@/lib/auth";
 import { mutateDb } from "@/lib/db";
-import { generateVerificationCode, sendVerificationCodeEmail } from "@/lib/email";
 import { hashPassword, nowIso, randomId } from "@/lib/utils";
 
 export async function POST(request: NextRequest) {
@@ -17,8 +17,6 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  const verificationCode = generateVerificationCode();
-
   const result = await mutateDb((db) => {
     if (db.adminUsers.some((u) => u.email === email)) {
       throw new Error("Email already exists");
@@ -33,9 +31,9 @@ export async function POST(request: NextRequest) {
       passwordHash: hashPassword(password),
       role: role as "super_admin" | "admin",
       isActive: true,
-      emailVerified: false,
-      emailVerificationCodeHash: hashPassword(verificationCode),
-      emailVerificationExpiresAt: new Date(Date.now() + 10 * 60 * 1000).toISOString(),
+      emailVerified: true,
+      emailVerificationCodeHash: undefined,
+      emailVerificationExpiresAt: undefined,
       paymentStatus: "trial" as const,
       paymentExpiresAt: trialEnds.toISOString(),
       trialEndsAt: trialEnds.toISOString(),
@@ -45,35 +43,24 @@ export async function POST(request: NextRequest) {
     if (!db.tenant.businessName) {
       db.tenant.businessName = businessName;
     }
-    return {
-      id: user.id,
-      fullName: user.fullName,
-      email: user.email,
-      role: user.role,
-    };
+    return user;
   }).catch((error: Error) => error);
 
   if (result instanceof Error) {
     return NextResponse.json({ error: result.message }, { status: 400 });
   }
 
-  let verificationSent = true;
-  try {
-    await sendVerificationCodeEmail({
-      email: result.email,
-      fullName: result.fullName,
-      code: verificationCode,
-    });
-  } catch {
-    verificationSent = false;
-  }
-
+  const token = createToken({ sub: result.id, email: result.email, role: result.role });
+  await setAuthCookie(token);
   return NextResponse.json({
-    requiresVerification: true,
-    verificationSent,
-    email: result.email,
-    message: verificationSent
-      ? "Account created. Enter the OTP sent to your email."
-      : "Account created. OTP email failed to send. Use resend OTP.",
+    token,
+    user: {
+      id: result.id,
+      fullName: result.fullName,
+      email: result.email,
+      role: result.role,
+      paymentStatus: result.paymentStatus,
+      paymentExpiresAt: result.paymentExpiresAt,
+    },
   });
 }

@@ -57,9 +57,6 @@ export async function loginAdmin(email: string, password: string) {
   if (!safeCompare(user.passwordHash, hashPassword(password))) {
     return { ok: false as const, error: "Invalid credentials" };
   }
-  if (!user.emailVerified) {
-    return { ok: false as const, error: "Email not verified. Enter the verification code sent to your email." };
-  }
   const token = createToken({ sub: user.id, email: user.email, role: user.role });
   return { ok: true as const, token, user };
 }
