@@ -74,6 +74,7 @@ export function buildMikrotikScript(router: RouterConfig, appBaseUrl: string): s
   const safeName = router.name.replace(/"/g, "");
   const lanBridge = `br-hotspot-${router.id.slice(-6)}`;
   const portalBase = appBaseUrl.replace(/\/+$/, "");
+  const portalUrl = `${portalBase}/portal/${router.id}`;
   const notes: string[] = [];
 
   if (router.setupOptions.disableHotspotSharing) {
@@ -130,7 +131,17 @@ export function buildMikrotikScript(router: RouterConfig, appBaseUrl: string): s
     "/ip hotspot walled-garden ip",
     `add dst-host=${portalBase.replace(/^https?:\/\//, "")} action=accept`,
     "",
-    "# 7) Optional tracking/logging toggles",
+    "# 7) Redirect hotspot login page to app portal",
+    `:local wifiBillingPortalUrl "${portalUrl}"`,
+    ":local wifiBillingLoginFile \"hotspot/login.html\"",
+    ":local wifiBillingLoginHtml (\"<!doctype html><html><head><meta charset=\\\"utf-8\\\"><meta http-equiv=\\\"refresh\\\" content=\\\"0; url=\" . $wifiBillingPortalUrl . \"\\\"></head><body>Redirecting...</body></html>\")",
+    ":if ([:len [/file find where name=$wifiBillingLoginFile]] > 0) do={",
+    "  /file set [find where name=$wifiBillingLoginFile] contents=$wifiBillingLoginHtml",
+    "} else={",
+    "  :log warning \"hotspot/login.html not found. Set portal redirect manually.\"",
+    "}",
+    "",
+    "# 8) Optional tracking/logging toggles",
     ...(router.setupOptions.enableDeviceTracking
       ? [
           "/ip firewall filter add chain=forward src-address=10.10.10.0/24 action=add-src-to-address-list " +
@@ -141,8 +152,8 @@ export function buildMikrotikScript(router: RouterConfig, appBaseUrl: string): s
       ? ["/system logging add topics=hotspot,info action=memory"]
       : []),
     "",
-    "# 8) Captive portal integration notes",
-    `:put "Set hotspot login page to call: ${portalBase}/portal/<routerId>"`,
+    "# 9) Captive portal integration notes",
+    `:put "Portal URL: ${portalUrl}"`,
     `:put "Use routerId: ${router.id}"`,
     "",
     `:log info "WiFi Billing setup complete for ${safeName}"`,
