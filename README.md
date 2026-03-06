@@ -6,7 +6,7 @@ Next.js full-stack SaaS platform for hotspot billing, MikroTik router operations
 
 - Backend/API: Next.js Route Handlers (Node runtime), TypeScript
 - Frontend: Next.js App Router + React
-- Storage: Supabase (`app_state` table, `singleton` row) with JSON file fallback (`data/db.json`) for local development
+- Storage: Supabase (separate tables per domain model) with JSON file fallback (`data/db.json`) for local development
 - Auth: JWT (HTTP-only cookie + bearer support), RBAC
 - Router integration: MikroTik service abstraction (`lib/mikrotik.ts`)
 
@@ -59,8 +59,6 @@ JWT_SECRET=change_this_secret
 MIKROTIK_LIVE_MODE=false
 SUPABASE_URL=https://YOUR_PROJECT_REF.supabase.co
 SUPABASE_SERVICE_ROLE_KEY=YOUR_SERVICE_ROLE_KEY
-SUPABASE_STATE_TABLE=app_state
-SUPABASE_STATE_ROW_ID=singleton
 SUPABASE_ALLOW_LOCAL_FALLBACK=false
 MPESA_ENV=sandbox
 MPESA_CONSUMER_KEY=YOUR_CONSUMER_KEY
@@ -83,7 +81,25 @@ MPESA_SIMULATE=false
 2. In SQL Editor, create the state table:
    `create table if not exists public.app_state (id text primary key, payload jsonb not null, updated_at timestamptz not null default now());`
 3. Copy `SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY` into `.env.local`.
-4. Optional: set `SUPABASE_STATE_TABLE` and `SUPABASE_STATE_ROW_ID` (defaults are `app_state` and `singleton`).
+4. Create required tables:
+   - `tenant_profiles`
+   - `admin_users`
+   - `mikrotiks`
+   - `wifi_packages`
+   - `hotspot_users`
+   - `sessions`
+   - `payments`
+   - `payment_intents`
+   - `vouchers`
+
+Each table should have:
+```sql
+id text primary key,
+created_by text null,
+payload jsonb not null,
+updated_at timestamptz not null default now()
+```
+Use `created_by` as foreign key to `admin_users.id` for per-admin isolation.
 
 ## API Surface (Core)
 

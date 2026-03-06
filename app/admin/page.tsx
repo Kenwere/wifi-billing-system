@@ -171,6 +171,7 @@ export default function AdminPage() {
   const [usersImportPayload, setUsersImportPayload] = useState("");
   const [usersImportResult, setUsersImportResult] = useState("");
   const [packageNotice, setPackageNotice] = useState("");
+  const [routerNotice, setRouterNotice] = useState("");
   const [voucherNotice, setVoucherNotice] = useState("");
   const [logoUploadNotice, setLogoUploadNotice] = useState("");
   const [voucherForm, setVoucherForm] = useState({
@@ -569,21 +570,42 @@ export default function AdminPage() {
                   className="responsive-form"
                   onSubmit={(e) => {
                     e.preventDefault();
-                    void run(async () => {
-                      await jfetch("/api/routers", {
-                        method: "POST",
-                        body: JSON.stringify({
-                          name: routerForm.name,
-                          location: routerForm.location,
-                          setupOptions: {
-                            disableHotspotSharing: routerForm.disableHotspotSharing,
-                            enableDeviceTracking: routerForm.enableDeviceTracking,
-                            enableBandwidthControl: routerForm.enableBandwidthControl,
-                            enableSessionLogging: routerForm.enableSessionLogging,
-                          },
-                        }),
-                      });
-                    });
+                    void (async () => {
+                      setBusy(true);
+                      setError("");
+                      setRouterNotice("");
+                      try {
+                        await jfetch("/api/routers", {
+                          method: "POST",
+                          body: JSON.stringify({
+                            name: routerForm.name,
+                            location: routerForm.location,
+                            setupOptions: {
+                              disableHotspotSharing: routerForm.disableHotspotSharing,
+                              enableDeviceTracking: routerForm.enableDeviceTracking,
+                              enableBandwidthControl: routerForm.enableBandwidthControl,
+                              enableSessionLogging: routerForm.enableSessionLogging,
+                            },
+                          }),
+                        });
+                        setRouterNotice("MikroTik added successfully.");
+                        setRouterForm({
+                          name: "",
+                          location: "",
+                          disableHotspotSharing: true,
+                          enableDeviceTracking: true,
+                          enableBandwidthControl: true,
+                          enableSessionLogging: true,
+                        });
+                        await loadAll();
+                      } catch (err) {
+                        const msg = (err as Error).message;
+                        setError(msg);
+                        setRouterNotice(`Failed to add MikroTik: ${msg}`);
+                      } finally {
+                        setBusy(false);
+                      }
+                    })();
                   }}
                 >
                   <input
@@ -636,8 +658,23 @@ export default function AdminPage() {
                     />
                     Enable session logging
                   </label>
-                  <button className="btn btn-primary">Add MikroTik</button>
+                  <button
+                    className="btn btn-primary"
+                    disabled={busy || (me.role !== "super_admin" && routers.length >= 1)}
+                  >
+                    Add MikroTik
+                  </button>
                 </form>
+                {routerNotice && (
+                  <p style={{ color: routerNotice.startsWith("Failed") ? "var(--danger)" : "var(--accent)", marginTop: 8 }}>
+                    {routerNotice}
+                  </p>
+                )}
+                {me.role !== "super_admin" && routers.length >= 1 && (
+                  <p style={{ color: "var(--muted)", marginTop: 2 }}>
+                    You have reached the maximum limit of 1 MikroTik for this admin account.
+                  </p>
+                )}
 
                 <div className="table-wrap"><table>
                   <thead>

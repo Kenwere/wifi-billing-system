@@ -31,8 +31,8 @@ export async function POST(request: NextRequest) {
   const router = await mutateDb(async (db) => {
     if (gate.auth.role !== "super_admin") {
       const ownedCount = db.routers.filter((r) => r.createdBy === gate.auth.sub).length;
-      if (ownedCount >= 2) {
-        throw new Error("Admin accounts can add a maximum of 2 MikroTiks");
+      if (ownedCount >= 1) {
+        throw new Error("Admin accounts can add a maximum of 1 MikroTik");
       }
     }
     const hostFromBody = String(body.host ?? "").trim();
