@@ -38,17 +38,10 @@ export default function PortalCheckoutPage() {
   const [voucherCode, setVoucherCode] = useState("");
   const [message, setMessage] = useState("");
   const [loading, setLoading] = useState(false);
-  const [macAddress, setMacAddress] = useState("");
-  const [ipAddress, setIpAddress] = useState("");
 
   useEffect(() => {
     if (voucherFromQuery) setVoucherCode(voucherFromQuery);
   }, [voucherFromQuery]);
-
-  useEffect(() => {
-    if (macFromQuery) setMacAddress(macFromQuery);
-    if (ipFromQuery) setIpAddress(ipFromQuery);
-  }, [macFromQuery, ipFromQuery]);
 
   useEffect(() => {
     if (!routerId || !packageId) return;
@@ -74,8 +67,8 @@ export default function PortalCheckoutPage() {
         body: JSON.stringify({
           routerId,
           phone,
-          macAddress,
-          ipAddress,
+          macAddress: macFromQuery,
+          ipAddress: ipFromQuery,
           packageId: selectedPackage.id,
           method: "mpesa_paybill",
         }),
@@ -99,7 +92,13 @@ export default function PortalCheckoutPage() {
     try {
       const res = await jfetch("/api/vouchers/redeem", {
         method: "POST",
-        body: JSON.stringify({ code: voucherCode, phone, macAddress, ipAddress, routerId }),
+        body: JSON.stringify({
+          code: voucherCode,
+          phone,
+          macAddress: macFromQuery,
+          ipAddress: ipFromQuery,
+          routerId,
+        }),
       });
       setMessage(`Voucher redeemed. Session expires at ${new Date(res.session.expiresAt).toLocaleString()}`);
     } catch (err) {
@@ -129,17 +128,6 @@ export default function PortalCheckoutPage() {
               value={phone}
               onChange={(e) => setPhone(e.target.value)}
               required
-            />
-            <input
-              placeholder="MAC address"
-              value={macAddress}
-              onChange={(e) => setMacAddress(e.target.value)}
-              required
-            />
-            <input
-              placeholder="Device IP (optional)"
-              value={ipAddress}
-              onChange={(e) => setIpAddress(e.target.value)}
             />
             <button className="btn btn-primary" disabled={!selectedPackage || loading}>
               {loading ? "Sending..." : "Send M-Pesa Prompt"}

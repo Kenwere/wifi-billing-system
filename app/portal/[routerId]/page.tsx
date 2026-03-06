@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { useParams } from "next/navigation";
+import { useParams, useSearchParams } from "next/navigation";
 import { Navbar } from "@/components/Navbar";
 
 type PackageItem = { id: string; name: string; priceKsh: number; durationMinutes: number };
@@ -33,7 +33,11 @@ function formatDuration(minutes: number): string {
 
 export default function PortalPage() {
   const params = useParams<{ routerId: string }>();
+  const search = useSearchParams();
   const routerId = params?.routerId ?? "";
+  const mac = search.get("mac") ?? "";
+  const ip = search.get("ip") ?? "";
+  const deviceQuery = `mac=${encodeURIComponent(mac)}&ip=${encodeURIComponent(ip)}`;
   const [businessName, setBusinessName] = useState("WiFi");
   const [businessLogoUrl, setBusinessLogoUrl] = useState("");
   const [packages, setPackages] = useState<PackageItem[]>([]);
@@ -102,7 +106,7 @@ export default function PortalPage() {
                   placeholder="Enter voucher code"
                 />
                 <Link
-                  href={`/portal/${encodeURIComponent(routerId)}/checkout?voucher=${encodeURIComponent(voucherCode)}`}
+                  href={`/portal/${encodeURIComponent(routerId)}/checkout?voucher=${encodeURIComponent(voucherCode)}&${deviceQuery}`}
                   className="btn btn-secondary"
                   style={{ textAlign: "center", paddingTop: 10 }}
                 >
@@ -118,7 +122,7 @@ export default function PortalPage() {
                   {group.items.map((pkg) => (
                     <Link
                       key={pkg.id}
-                      href={`/portal/${encodeURIComponent(routerId)}/checkout?packageId=${encodeURIComponent(pkg.id)}`}
+                      href={`/portal/${encodeURIComponent(routerId)}/checkout?packageId=${encodeURIComponent(pkg.id)}&${deviceQuery}`}
                       className="panel package-row"
                       style={{
                         padding: "8px 10px",

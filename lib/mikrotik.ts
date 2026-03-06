@@ -75,6 +75,7 @@ export function buildMikrotikScript(router: RouterConfig, appBaseUrl: string): s
   const lanBridge = `br-hotspot-${router.id.slice(-6)}`;
   const portalBase = appBaseUrl.replace(/\/+$/, "");
   const portalUrl = `${portalBase}/portal/${router.id}`;
+  const portalUrlWithDevice = `${portalUrl}?mac=$(mac)&ip=$(ip)`;
   const notes: string[] = [];
 
   if (router.setupOptions.disableHotspotSharing) {
@@ -132,7 +133,7 @@ export function buildMikrotikScript(router: RouterConfig, appBaseUrl: string): s
     `add dst-host=${portalBase.replace(/^https?:\/\//, "")} action=accept`,
     "",
     "# 7) Redirect hotspot login page to app portal",
-    `:local wifiBillingPortalUrl "${portalUrl}"`,
+    `:local wifiBillingPortalUrl "${portalUrlWithDevice}"`,
     ":local wifiBillingLoginHtml (\"<!doctype html><html><head><meta http-equiv=\\\"refresh\\\" content=\\\"0; url=\" . $wifiBillingPortalUrl . \"\\\"></head><body>Redirecting...</body></html>\")",
     ":do { /file set [find where name=\"hotspot/login.html\"] contents=$wifiBillingLoginHtml } on-error={ :log warning \"Could not update hotspot/login.html on first attempt\" }",
     ":delay 2s",
@@ -150,7 +151,7 @@ export function buildMikrotikScript(router: RouterConfig, appBaseUrl: string): s
       : []),
     "",
     "# 9) Captive portal integration notes",
-    `:put "Portal URL: ${portalUrl}"`,
+    `:put "Portal URL: ${portalUrlWithDevice}"`,
     `:put "Use routerId: ${router.id}"`,
     "",
     `:log info "WiFi Billing setup complete for ${safeName}"`,

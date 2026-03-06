@@ -4,24 +4,43 @@ import { mutateDb, readDb } from "@/lib/db";
 import { startStkPush } from "@/lib/mpesa";
 import { subscriptionState } from "@/lib/subscription";
 import { PaymentMethod } from "@/lib/types";
-import { nowIso, randomId } from "@/lib/utils";
+import { normalizeMac, nowIso, randomId } from "@/lib/utils";
+import crypto from "crypto";
+
+function buildPseudoMac(seed: string): string {
+  const hash = crypto.createHash("sha256").update(seed).digest("hex");
+  const bytes = [
+    "02",
+    hash.slice(0, 2),
+    hash.slice(2, 4),
+    hash.slice(4, 6),
+    hash.slice(6, 8),
+    hash.slice(8, 10),
+  ];
+  return bytes.join(":").toUpperCase();
+}
 
 export async function POST(request: NextRequest) {
   const body = await request.json();
   const method = String(body.method ?? "mpesa_till") as PaymentMethod;
   const phone = String(body.phone ?? "");
-  const macAddress = String(body.macAddress ?? "");
+  const macBody = String(body.macAddress ?? "");
+  const macQuery = request.nextUrl.searchParams.get("macAddress") ?? request.nextUrl.searchParams.get("mac") ?? "";
+  const rawMac = macBody || macQuery;
   const forwarded = request.headers.get("x-forwarded-for");
   const inferredIp = forwarded?.split(",")[0]?.trim() || "0.0.0.0";
   const ipAddress = String(body.ipAddress ?? inferredIp);
   const packageId = String(body.packageId ?? "");
   const routerId = String(body.routerId ?? "");
-  if (!phone || !macAddress || !packageId || !routerId) {
+  if (!phone || !packageId || !routerId) {
     return NextResponse.json(
-      { error: "phone, macAddress, packageId and routerId are required" },
+      { error: "phone, packageId and routerId are required" },
       { status: 400 },
     );
   }
+  const macAddress = rawMac
+    ? normalizeMac(rawMac)
+    : buildPseudoMac(`${phone}|${routerId}|${ipAddress}|${request.headers.get("user-agent") ?? ""}`);
 
   const db = await readDb();
   const state = subscriptionState(db);
