@@ -4,11 +4,23 @@ import { mutateDb, readDb } from "@/lib/db";
 import { verifyPaystackTransaction } from "@/lib/paystack";
 import { nowIso } from "@/lib/utils";
 
-function redirectWithStatus(request: NextRequest, routerId: string, status: "ok" | "failed", message: string) {
-  const destination = new URL(`/portal/${encodeURIComponent(routerId)}/checkout`, request.nextUrl.origin);
-  destination.searchParams.set("status", status);
-  destination.searchParams.set("message", message);
+function redirectWithStatus(
+  request: NextRequest,
+  params: { routerId: string; status: "ok" | "failed"; message: string; phone?: string; macAddress?: string },
+) {
+  const destination =
+    params.status === "ok"
+      ? new URL(`/portal/${encodeURIComponent(params.routerId)}/connected`, request.nextUrl.origin)
+      : new URL(`/portal/${encodeURIComponent(params.routerId)}/checkout`, request.nextUrl.origin);
+  destination.searchParams.set("status", params.status);
+  destination.searchParams.set("message", params.message);
+  if (params.phone) destination.searchParams.set("phone", params.phone);
+  if (params.macAddress) destination.searchParams.set("mac", params.macAddress);
   return NextResponse.redirect(destination);
+}
+
+async function sleep(ms: number) {
+  await new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 export async function GET(request: NextRequest) {
@@ -23,7 +35,29 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: "Payment intent not found" }, { status: 404 });
   }
   if (intent.status === "success") {
-    return redirectWithStatus(request, intent.routerId, "ok", "Payment already verified.");
+    return redirectWithStatus(request, {
+      routerId: intent.routerId,
+      status: "ok",
+      message: "Payment verified. Internet connected.",
+      phone: intent.phone,
+      macAddress: intent.macAddress,
+    });
+  }
+
+  // Give webhook a short chance to complete first to avoid extra verification delay.
+  for (let i = 0; i < 5; i += 1) {
+    const latest = await readDb();
+    const latestIntent = latest.paymentIntents.find((it) => it.id === intent.id);
+    if (latestIntent?.status === "success") {
+      return redirectWithStatus(request, {
+        routerId: latestIntent.routerId,
+        status: "ok",
+        message: "Payment verified. Internet connected.",
+        phone: latestIntent.phone,
+        macAddress: latestIntent.macAddress,
+      });
+    }
+    await sleep(500);
   }
 
   const verified = await verifyPaystackTransaction(reference).catch((error: Error) => error);
@@ -35,7 +69,13 @@ export async function GET(request: NextRequest) {
       item.resultDesc = verified.message;
       item.updatedAt = nowIso();
     });
-    return redirectWithStatus(request, intent.routerId, "failed", verified.message);
+    return redirectWithStatus(request, {
+      routerId: intent.routerId,
+      status: "failed",
+      message: verified.message,
+      phone: intent.phone,
+      macAddress: intent.macAddress,
+    });
   }
 
   if (verified.status !== "success") {
@@ -46,7 +86,13 @@ export async function GET(request: NextRequest) {
       item.resultDesc = `Paystack status: ${verified.status}`;
       item.updatedAt = nowIso();
     });
-    return redirectWithStatus(request, intent.routerId, "failed", "Payment not successful.");
+    return redirectWithStatus(request, {
+      routerId: intent.routerId,
+      status: "failed",
+      message: "Payment not successful.",
+      phone: intent.phone,
+      macAddress: intent.macAddress,
+    });
   }
 
   const activation = await processPaymentAndActivateSession({
@@ -66,7 +112,13 @@ export async function GET(request: NextRequest) {
       item.resultDesc = activation.message;
       item.updatedAt = nowIso();
     });
-    return redirectWithStatus(request, intent.routerId, "failed", activation.message);
+    return redirectWithStatus(request, {
+      routerId: intent.routerId,
+      status: "failed",
+      message: activation.message,
+      phone: intent.phone,
+      macAddress: intent.macAddress,
+    });
   }
 
   await mutateDb((current) => {
@@ -77,5 +129,11 @@ export async function GET(request: NextRequest) {
     item.updatedAt = nowIso();
   });
 
-  return redirectWithStatus(request, intent.routerId, "ok", "Payment verified. Internet connected.");
+  return redirectWithStatus(request, {
+    routerId: intent.routerId,
+    status: "ok",
+    message: "Payment verified. Internet connected.",
+    phone: intent.phone,
+    macAddress: intent.macAddress,
+  });
 }

@@ -1,3 +1,5 @@
+import crypto from "crypto";
+import net from "net";
 import { RouterConfig, Session } from "@/lib/types";
 
 export interface MikrotikSetupResult {
@@ -8,6 +10,202 @@ export interface MikrotikSetupResult {
 
 function isLiveMode(): boolean {
   return process.env.MIKROTIK_LIVE_MODE === "true";
+}
+
+type ApiReply = {
+  type: string;
+  attrs: Record<string, string>;
+};
+
+const API_TIMEOUT_MS = Number(process.env.MIKROTIK_API_TIMEOUT_MS ?? 8000);
+
+function encodeLength(len: number): Buffer {
+  if (len < 0x80) return Buffer.from([len]);
+  if (len < 0x4000) return Buffer.from([(len >> 8) | 0x80, len & 0xff]);
+  if (len < 0x200000) return Buffer.from([(len >> 16) | 0xc0, (len >> 8) & 0xff, len & 0xff]);
+  if (len < 0x10000000) {
+    return Buffer.from([(len >> 24) | 0xe0, (len >> 16) & 0xff, (len >> 8) & 0xff, len & 0xff]);
+  }
+  return Buffer.from([0xf0, (len >> 24) & 0xff, (len >> 16) & 0xff, (len >> 8) & 0xff, len & 0xff]);
+}
+
+function decodeLength(buf: Buffer, offset: number): { length: number; bytes: number } | null {
+  if (offset >= buf.length) return null;
+  const b = buf[offset] ?? 0;
+  if ((b & 0x80) === 0x00) return { length: b, bytes: 1 };
+  if ((b & 0xc0) === 0x80) {
+    if (offset + 1 >= buf.length) return null;
+    return { length: ((b & 0x3f) << 8) + (buf[offset + 1] ?? 0), bytes: 2 };
+  }
+  if ((b & 0xe0) === 0xc0) {
+    if (offset + 2 >= buf.length) return null;
+    return {
+      length: ((b & 0x1f) << 16) + ((buf[offset + 1] ?? 0) << 8) + (buf[offset + 2] ?? 0),
+      bytes: 3,
+    };
+  }
+  if ((b & 0xf0) === 0xe0) {
+    if (offset + 3 >= buf.length) return null;
+    return {
+      length:
+        ((b & 0x0f) << 24) +
+        ((buf[offset + 1] ?? 0) << 16) +
+        ((buf[offset + 2] ?? 0) << 8) +
+        (buf[offset + 3] ?? 0),
+      bytes: 4,
+    };
+  }
+  if (b === 0xf0) {
+    if (offset + 4 >= buf.length) return null;
+    return {
+      length:
+        ((buf[offset + 1] ?? 0) << 24) +
+        ((buf[offset + 2] ?? 0) << 16) +
+        ((buf[offset + 3] ?? 0) << 8) +
+        (buf[offset + 4] ?? 0),
+      bytes: 5,
+    };
+  }
+  throw new Error("Unsupported RouterOS word length encoding");
+}
+
+class RouterOsApi {
+  private socket: net.Socket;
+  private buffer: Buffer;
+
+  constructor(socket: net.Socket) {
+    this.socket = socket;
+    this.buffer = Buffer.alloc(0);
+    this.socket.on("data", (chunk: Buffer) => {
+      this.buffer = Buffer.concat([this.buffer, chunk]);
+    });
+  }
+
+  private writeSentence(words: string[]): Promise<void> {
+    const buffers: Buffer[] = [];
+    for (const word of words) {
+      const w = Buffer.from(word, "utf8");
+      buffers.push(encodeLength(w.length), w);
+    }
+    buffers.push(Buffer.from([0]));
+    const payload = Buffer.concat(buffers);
+    return new Promise((resolve, reject) => {
+      this.socket.write(payload, (err) => {
+        if (err) reject(err);
+        else resolve();
+      });
+    });
+  }
+
+  private tryReadSentence(): string[] | null {
+    let offset = 0;
+    const words: string[] = [];
+    while (true) {
+      const decoded = decodeLength(this.buffer, offset);
+      if (!decoded) return null;
+      offset += decoded.bytes;
+      if (decoded.length === 0) {
+        this.buffer = this.buffer.subarray(offset);
+        return words;
+      }
+      if (offset + decoded.length > this.buffer.length) return null;
+      const word = this.buffer.subarray(offset, offset + decoded.length).toString("utf8");
+      words.push(word);
+      offset += decoded.length;
+    }
+  }
+
+  private async readSentence(timeoutMs = API_TIMEOUT_MS): Promise<string[]> {
+    const start = Date.now();
+    while (Date.now() - start < timeoutMs) {
+      const sentence = this.tryReadSentence();
+      if (sentence) return sentence;
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    }
+    throw new Error("RouterOS API read timeout");
+  }
+
+  async command(words: string[]): Promise<ApiReply[]> {
+    await this.writeSentence(words);
+    const replies: ApiReply[] = [];
+    while (true) {
+      const sentence = await this.readSentence();
+      if (!sentence[0]) continue;
+      const type = sentence[0];
+      const attrs: Record<string, string> = {};
+      for (const part of sentence.slice(1)) {
+        if (!part.startsWith("=")) continue;
+        const nextEq = part.indexOf("=", 1);
+        if (nextEq < 0) continue;
+        const key = part.slice(1, nextEq);
+        const val = part.slice(nextEq + 1);
+        attrs[key] = val;
+      }
+      replies.push({ type, attrs });
+      if (type === "!done" || type === "!trap" || type === "!fatal") {
+        return replies;
+      }
+    }
+  }
+}
+
+async function withRouterClient<T>(router: RouterConfig, fn: (client: RouterOsApi) => Promise<T>): Promise<T> {
+  const socket = await new Promise<net.Socket>((resolve, reject) => {
+    const s = net.createConnection({ host: router.host, port: router.apiPort });
+    const onError = (err: Error) => {
+      s.destroy();
+      reject(err);
+    };
+    s.once("error", onError);
+    s.once("connect", () => {
+      s.removeListener("error", onError);
+      s.setNoDelay(true);
+      resolve(s);
+    });
+    s.setTimeout(API_TIMEOUT_MS, () => onError(new Error("RouterOS API connect timeout")));
+  });
+
+  const client = new RouterOsApi(socket);
+  try {
+    const login = await client.command([
+      "/login",
+      `=name=${router.username}`,
+      `=password=${router.password}`,
+    ]);
+    const trap = login.find((r) => r.type === "!trap");
+    if (trap) {
+      const legacyStart = await client.command(["/login"]);
+      const challenge = legacyStart.find((r) => r.attrs.ret)?.attrs.ret;
+      if (!challenge) {
+        throw new Error(trap.attrs.message || "RouterOS API login failed");
+      }
+      const digest = crypto
+        .createHash("md5")
+        .update(Buffer.concat([Buffer.from([0]), Buffer.from(router.password), Buffer.from(challenge, "hex")]))
+        .digest("hex");
+      const legacyLogin = await client.command([
+        "/login",
+        `=name=${router.username}`,
+        `=response=00${digest}`,
+      ]);
+      const legacyTrap = legacyLogin.find((r) => r.type === "!trap");
+      if (legacyTrap) {
+        throw new Error(legacyTrap.attrs.message || "RouterOS API legacy login failed");
+      }
+    }
+    return await fn(client);
+  } finally {
+    socket.end();
+    socket.destroy();
+  }
+}
+
+async function findIds(client: RouterOsApi, path: string, where: string[]): Promise<string[]> {
+  const replies = await client.command([`${path}/print`, ...where]);
+  return replies
+    .filter((r) => r.type === "!re")
+    .map((r) => r.attrs[".id"])
+    .filter((id): id is string => Boolean(id));
 }
 
 export async function setupRouter(router: RouterConfig): Promise<MikrotikSetupResult> {
@@ -48,8 +246,34 @@ export async function grantInternetAccess(
   session: Session,
 ): Promise<{ ok: boolean; message: string }> {
   if (isLiveMode()) {
-    // Replace with API calls:
-    // /ip/hotspot/user/add or RADIUS authorize with profile + expiry
+    const mac = session.macAddress.toUpperCase();
+    await withRouterClient(router, async (client) => {
+      // Ensure clean state then add bypass binding for this device.
+      const oldBindings = await findIds(client, "/ip/hotspot/ip-binding", [`?mac-address=${mac}`]);
+      for (const id of oldBindings) {
+        await client.command(["/ip/hotspot/ip-binding/remove", `=.id=${id}`]);
+      }
+      const bindingWords = [
+        "/ip/hotspot/ip-binding/add",
+        `=mac-address=${mac}`,
+        "=type=bypassed",
+        `=comment=moonconnect:${session.id}`,
+      ];
+      if (session.ipAddress && session.ipAddress !== "0.0.0.0") {
+        bindingWords.push(`=address=${session.ipAddress}`);
+      }
+      const addBinding = await client.command(bindingWords);
+      const addTrap = addBinding.find((r) => r.type === "!trap");
+      if (addTrap) {
+        throw new Error(addTrap.attrs.message || "Failed to add hotspot ip-binding");
+      }
+
+      // Kick active unauthenticated entry to force immediate policy re-evaluation.
+      const activeIds = await findIds(client, "/ip/hotspot/active", [`?mac-address=${mac}`]);
+      for (const id of activeIds) {
+        await client.command(["/ip/hotspot/active/remove", `=.id=${id}`]);
+      }
+    });
   }
   return {
     ok: true,
@@ -62,7 +286,21 @@ export async function disconnectInternetAccess(
   macAddress: string,
 ): Promise<{ ok: boolean; message: string }> {
   if (isLiveMode()) {
-    // Replace with API calls to remove active host/session by MAC.
+    const mac = macAddress.toUpperCase();
+    await withRouterClient(router, async (client) => {
+      const bindingIds = await findIds(client, "/ip/hotspot/ip-binding", [`?mac-address=${mac}`]);
+      for (const id of bindingIds) {
+        await client.command(["/ip/hotspot/ip-binding/remove", `=.id=${id}`]);
+      }
+      const activeIds = await findIds(client, "/ip/hotspot/active", [`?mac-address=${mac}`]);
+      for (const id of activeIds) {
+        await client.command(["/ip/hotspot/active/remove", `=.id=${id}`]);
+      }
+      const cookieIds = await findIds(client, "/ip/hotspot/cookie", [`?mac-address=${mac}`]);
+      for (const id of cookieIds) {
+        await client.command(["/ip/hotspot/cookie/remove", `=.id=${id}`]);
+      }
+    });
   }
   return {
     ok: true,
@@ -85,6 +323,11 @@ export function buildMikrotikScript(router: RouterConfig, appBaseUrl: string): s
   const portalUrlWithDevice = `${portalUrl}?mac=$(mac)&ip=$(ip)`;
   const notes: string[] = [];
   const usesPaystack = (router.paymentDestination?.enabledMethods ?? []).includes("paystack");
+  const apiAllowIps = (process.env.MIKROTIK_API_ALLOWLIST_IPS ?? "")
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean);
+  const wanInterface = process.env.MIKROTIK_WAN_INTERFACE?.trim() ?? "";
   const paystackHosts = [
     "paystack.com",
     "*.paystack.com",
@@ -109,7 +352,7 @@ export function buildMikrotikScript(router: RouterConfig, appBaseUrl: string): s
   return [
     "# WiFi Billing MikroTik setup script",
     `# Router: ${safeName}`,
-    "# WAN: ether1",
+    `# WAN: ${wanInterface || "auto-detect (dhcp-client bound interface, fallback ether1)"}`,
     "# Hotspot/LAN: ether2, ether3, ether4",
     `# Captive Portal Backend: ${portalBase}`,
     ...(notes.length ? ["# Options:", ...notes.map((n) => `# - ${n}`)] : []),
@@ -134,6 +377,37 @@ export function buildMikrotikScript(router: RouterConfig, appBaseUrl: string): s
     "",
     "# 4) NAT for clients to reach internet",
     "/ip firewall nat add chain=srcnat out-interface=ether1 action=masquerade comment=\"WiFi Billing NAT\"",
+    "",
+    "# 4b) Secure RouterOS API (TCP 8728) from allowed backend IPs only",
+    `:local moonWanIf "${wanInterface}"`,
+    ":if ($moonWanIf = \"\") do={",
+    "  :if ([:len [/ip dhcp-client find where disabled=no and status=\"bound\"]] > 0) do={",
+    "    :set moonWanIf [/ip dhcp-client get [find where disabled=no and status=\"bound\"] interface]",
+    "    :log info (\"MoonConnect WAN auto-detected: \" . $moonWanIf)",
+    "  } else={",
+    "    :set moonWanIf \"ether1\"",
+    "    :log warning \"MoonConnect WAN auto-detect failed. Falling back to ether1\"",
+    "  }",
+    "}",
+    ":foreach i in=[/ip firewall filter find where comment~\"MoonConnect API\"] do={",
+    "  /ip firewall filter remove $i",
+    "  :log info \"MoonConnect removed old API firewall rule\"",
+    "}",
+    "/ip service set api address=0.0.0.0/0 port=8728 disabled=no",
+    ":log info \"MoonConnect enabled RouterOS API service on tcp/8728\"",
+    ...(apiAllowIps.length
+      ? [
+          ...apiAllowIps.map(
+            (ip) =>
+              `/ip firewall filter add chain=input in-interface=$moonWanIf src-address=${ip} protocol=tcp dst-port=8728 action=accept comment=\"MoonConnect API allow ${ip}\"`,
+          ),
+          ...apiAllowIps.map((ip) => `:log info "MoonConnect applied API allow rule for ${ip}"`),
+          `/ip firewall filter add chain=input in-interface=$moonWanIf protocol=tcp dst-port=8728 action=drop comment="MoonConnect API drop others"`,
+          `:log info "MoonConnect applied API drop rule for non-allowlisted sources on $moonWanIf"`,
+        ]
+      : [
+          `:log warning "MIKROTIK_API_ALLOWLIST_IPS not set; API 8728 exposed until you add firewall allowlist rules."`,
+        ]),
     "",
     "# 5) Hotspot basic config",
     "/ip hotspot profile",
