@@ -55,12 +55,23 @@ type PaymentItem = { id: string; userPhone: string; packageName: string; amountK
 type RankingItem = { phone: string; duration: number; connections: number };
 type Tenant = { businessName: string; businessLogoUrl?: string };
 type HotspotUserItem = { id: string; phone: string; macAddress: string; lastIp: string; updatedAt: string };
+type VoucherItem = {
+  id: string;
+  code: string;
+  packageId: string;
+  expiryDate: string;
+  status: "used" | "unused";
+  sentToPhone?: string;
+  usedByPhone?: string;
+  usedAt?: string;
+};
 
 type SectionKey =
   | "overview"
   | "business"
   | "routers"
   | "packages"
+  | "vouchers"
   | "users"
   | "sessions"
   | "payments"
@@ -105,6 +116,7 @@ export default function AdminPage() {
   const [tenant, setTenant] = useState<Tenant>({ businessName: "", businessLogoUrl: "" });
   const [routers, setRouters] = useState<RouterItem[]>([]);
   const [packages, setPackages] = useState<PackageItem[]>([]);
+  const [vouchers, setVouchers] = useState<VoucherItem[]>([]);
   const [hotspotUsers, setHotspotUsers] = useState<HotspotUserItem[]>([]);
   const [sessions, setSessions] = useState<SessionItem[]>([]);
   const [payments, setPayments] = useState<PaymentItem[]>([]);
@@ -147,12 +159,19 @@ export default function AdminPage() {
   const [usersImportMode, setUsersImportMode] = useState<"merge" | "replace">("merge");
   const [usersImportPayload, setUsersImportPayload] = useState("");
   const [usersImportResult, setUsersImportResult] = useState("");
+  const [packageNotice, setPackageNotice] = useState("");
+  const [voucherForm, setVoucherForm] = useState({
+    packageId: "",
+    expiryDate: "",
+    sentToPhone: "",
+  });
 
   async function loadAll() {
-    const [ov, rt, pk, us, ss, pl, tn] = await Promise.all([
+    const [ov, rt, pk, vc, us, ss, pl, tn] = await Promise.all([
       jfetch("/api/analytics/overview"),
       jfetch("/api/routers"),
       jfetch("/api/packages"),
+      jfetch("/api/vouchers"),
       jfetch("/api/users"),
       jfetch("/api/sessions"),
       jfetch("/api/payments/logs"),
@@ -161,6 +180,7 @@ export default function AdminPage() {
     setOverview(ov as Overview);
     setRouters((rt as { routers: RouterItem[] }).routers ?? []);
     setPackages((pk as { packages: PackageItem[] }).packages ?? []);
+    setVouchers((vc as { vouchers: VoucherItem[] }).vouchers ?? []);
     setHotspotUsers((us as { users: HotspotUserItem[] }).users ?? []);
     setSessions((ss as { sessions: SessionItem[] }).sessions ?? []);
     setPayments((pl as { payments: PaymentItem[] }).payments ?? []);
@@ -402,6 +422,7 @@ export default function AdminPage() {
                 ["business", "Business"],
                 ["routers", "MikroTik & Payments"],
                 ["packages", "Packages"],
+                ["vouchers", "Vouchers"],
                 ["users", "Users Import/Export"],
                 ["sessions", "Sessions"],
                 ["payments", "User Payments"],
@@ -661,28 +682,59 @@ export default function AdminPage() {
                   className="responsive-form"
                   onSubmit={(e) => {
                     e.preventDefault();
-                    void run(async () => {
-                      await jfetch("/api/packages", {
-                        method: "POST",
-                        body: JSON.stringify({
-                          name: packageForm.name,
-                          priceKsh: Number(packageForm.priceKsh),
-                          durationMinutes: Number(packageForm.durationMinutes),
-                          speedLimitKbps: packageForm.speedMbps
-                            ? Math.round(Number(packageForm.speedMbps) * 1000)
-                            : undefined,
-                          dataLimitMb: packageForm.unlimitedData
-                            ? undefined
-                            : Number(packageForm.dataLimitMb || 0),
-                          routerId: packageForm.routerId,
-                        }),
-                      });
-                    });
+                    void (async () => {
+                      setBusy(true);
+                      setError("");
+                      setPackageNotice("");
+                      try {
+                        if (!packageForm.name.trim()) {
+                          throw new Error("Package name is required");
+                        }
+                        if (!packageForm.priceKsh || Number(packageForm.priceKsh) <= 0) {
+                          throw new Error("Price must be greater than 0");
+                        }
+                        if (!packageForm.durationMinutes || Number(packageForm.durationMinutes) <= 0) {
+                          throw new Error("Duration must be greater than 0");
+                        }
+                        await jfetch("/api/packages", {
+                          method: "POST",
+                          body: JSON.stringify({
+                            name: packageForm.name,
+                            priceKsh: Number(packageForm.priceKsh),
+                            durationMinutes: Number(packageForm.durationMinutes),
+                            speedLimitKbps: packageForm.speedMbps
+                              ? Math.round(Number(packageForm.speedMbps) * 1000)
+                              : undefined,
+                            dataLimitMb: packageForm.unlimitedData
+                              ? undefined
+                              : Number(packageForm.dataLimitMb || 0),
+                            routerId: packageForm.routerId,
+                          }),
+                        });
+                        await loadAll();
+                        setPackageForm({
+                          name: "",
+                          priceKsh: "",
+                          durationMinutes: "",
+                          speedMbps: "",
+                          unlimitedData: true,
+                          dataLimitMb: "",
+                          routerId: "",
+                        });
+                        setPackageNotice("Package created successfully.");
+                      } catch (err) {
+                        const msg = (err as Error).message;
+                        setError(msg);
+                        setPackageNotice(`Failed to create package: ${msg}`);
+                      } finally {
+                        setBusy(false);
+                      }
+                    })();
                   }}
                 >
-                  <input value={packageForm.name} onChange={(e) => setPackageForm({ ...packageForm, name: e.target.value })} placeholder="Package name" />
-                  <input type="number" value={packageForm.priceKsh} onChange={(e) => setPackageForm({ ...packageForm, priceKsh: e.target.value })} placeholder="Price in KSH" />
-                  <input type="number" value={packageForm.durationMinutes} onChange={(e) => setPackageForm({ ...packageForm, durationMinutes: e.target.value })} placeholder="Duration (minutes)" />
+                  <input value={packageForm.name} onChange={(e) => setPackageForm({ ...packageForm, name: e.target.value })} placeholder="Package name" required />
+                  <input type="number" min={1} value={packageForm.priceKsh} onChange={(e) => setPackageForm({ ...packageForm, priceKsh: e.target.value })} placeholder="Price in KSH" required />
+                  <input type="number" min={1} value={packageForm.durationMinutes} onChange={(e) => setPackageForm({ ...packageForm, durationMinutes: e.target.value })} placeholder="Duration (minutes)" required />
                   <input
                     type="number"
                     value={packageForm.speedMbps}
@@ -711,6 +763,11 @@ export default function AdminPage() {
                   </select>
                   <button className="btn btn-primary">Add</button>
                 </form>
+                {packageNotice && (
+                  <p style={{ color: packageNotice.startsWith("Failed") ? "var(--danger)" : "var(--accent)", marginTop: 8 }}>
+                    {packageNotice}
+                  </p>
+                )}
                 <div className="table-wrap"><table>
                   <thead><tr><th>Name</th><th>Price</th><th>Time</th><th>Speed</th><th>Data</th><th>Actions</th></tr></thead>
                   <tbody>
@@ -752,6 +809,89 @@ export default function AdminPage() {
                     ))}
                   </tbody>
                 </table></div>
+              </section>
+            )}
+
+            {section === "vouchers" && (
+              <section className="panel" style={{ padding: 14 }}>
+                <h3>Voucher Management</h3>
+                <p style={{ color: "var(--muted)", marginTop: 4 }}>
+                  Create voucher codes linked to a package. Redeeming resets user session time to package duration.
+                </p>
+                <form
+                  className="responsive-form"
+                  onSubmit={(e) => {
+                    e.preventDefault();
+                    void run(async () => {
+                      await jfetch("/api/vouchers", {
+                        method: "POST",
+                        body: JSON.stringify({
+                          packageId: voucherForm.packageId,
+                          expiryDate: voucherForm.expiryDate,
+                          sentToPhone: voucherForm.sentToPhone || undefined,
+                        }),
+                      });
+                      setVoucherForm({ packageId: "", expiryDate: "", sentToPhone: "" });
+                    });
+                  }}
+                >
+                  <select
+                    value={voucherForm.packageId}
+                    onChange={(e) => setVoucherForm({ ...voucherForm, packageId: e.target.value })}
+                    required
+                  >
+                    <option value="">Select package</option>
+                    {packages.filter((p) => p.active).map((p) => (
+                      <option key={p.id} value={p.id}>
+                        {p.name} - {fmtDuration(p.durationMinutes)} - KSH {p.priceKsh}
+                      </option>
+                    ))}
+                  </select>
+                  <input
+                    type="date"
+                    value={voucherForm.expiryDate}
+                    onChange={(e) => setVoucherForm({ ...voucherForm, expiryDate: e.target.value })}
+                    required
+                  />
+                  <input
+                    value={voucherForm.sentToPhone}
+                    onChange={(e) => setVoucherForm({ ...voucherForm, sentToPhone: e.target.value })}
+                    placeholder="Optional phone"
+                  />
+                  <button className="btn btn-primary" disabled={busy}>
+                    Create Voucher
+                  </button>
+                </form>
+
+                <div className="table-wrap" style={{ marginTop: 12 }}>
+                  <table>
+                    <thead>
+                      <tr>
+                        <th>Code</th>
+                        <th>Package</th>
+                        <th>Expiry</th>
+                        <th>Status</th>
+                        <th>Sent To</th>
+                        <th>Used By</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {vouchers.map((v) => {
+                        const pkg = packages.find((p) => p.id === v.packageId);
+                        return (
+                          <tr key={v.id}>
+                            <td style={{ fontFamily: "monospace", fontWeight: 700 }}>{v.code}</td>
+                            <td>{pkg ? `${pkg.name} (${fmtDuration(pkg.durationMinutes)})` : v.packageId}</td>
+                            <td>{new Date(v.expiryDate).toLocaleDateString()}</td>
+                            <td>{v.status}</td>
+                            <td>{v.sentToPhone ?? "-"}</td>
+                            <td>{v.usedByPhone ?? "-"}</td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
               </section>
             )}
 

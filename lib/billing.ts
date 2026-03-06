@@ -29,6 +29,22 @@ export async function findReusableSession(input: {
   );
 }
 
+export async function findReusableSessionByDevice(input: {
+  macAddress: string;
+  routerId: string;
+}) {
+  const db = await readDb();
+  const mac = normalizeMac(input.macAddress);
+  const now = new Date();
+  return db.sessions.find(
+    (s) =>
+      s.macAddress === mac &&
+      s.routerId === input.routerId &&
+      s.status === "active" &&
+      new Date(s.expiresAt) > now,
+  );
+}
+
 export async function processPaymentAndActivateSession(input: {
   phone: string;
   macAddress: string;

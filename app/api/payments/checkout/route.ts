@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { processPaymentAndActivateSession } from "@/lib/billing";
 import { mutateDb, readDb } from "@/lib/db";
 import { startStkPush } from "@/lib/mpesa";
+import { initializePaystackTransaction } from "@/lib/paystack";
 import { subscriptionState } from "@/lib/subscription";
 import { PaymentMethod } from "@/lib/types";
 import { normalizeMac, nowIso, randomId } from "@/lib/utils";
@@ -22,7 +23,7 @@ function buildPseudoMac(seed: string): string {
 
 export async function POST(request: NextRequest) {
   const body = await request.json();
-  const method = String(body.method ?? "mpesa_till") as PaymentMethod;
+  const requestedMethod = String(body.method ?? "").trim() as PaymentMethod;
   const phone = String(body.phone ?? "");
   const macBody = String(body.macAddress ?? "");
   const macQuery = request.nextUrl.searchParams.get("macAddress") ?? request.nextUrl.searchParams.get("mac") ?? "";
@@ -53,6 +54,13 @@ export async function POST(request: NextRequest) {
 
   const pkg = db.packages.find((p) => p.id === packageId && p.active);
   if (!pkg) return NextResponse.json({ error: "Package not found" }, { status: 404 });
+  const router = db.routers.find((r) => r.id === routerId && r.active);
+  if (!router) return NextResponse.json({ error: "Router not found" }, { status: 404 });
+
+  const enabledMethods = router.paymentDestination?.enabledMethods ?? [];
+  const method = (requestedMethod && enabledMethods.includes(requestedMethod)
+    ? requestedMethod
+    : enabledMethods[0] ?? "mpesa_till") as PaymentMethod;
 
   if (method === "mpesa_till" || method === "mpesa_paybill" || method === "mpesa_phone") {
     const intentId = randomId("pint");
@@ -110,16 +118,69 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json({
       status: "pending",
+      method,
       message: mpesa.CustomerMessage ?? "M-Pesa prompt sent. Complete payment on phone.",
       checkoutRequestId: mpesa.CheckoutRequestID,
       merchantRequestId: mpesa.MerchantRequestID,
     });
   }
 
+  if (method === "paystack") {
+    const intentId = randomId("pint");
+    const callbackUrl =
+      process.env.PAYSTACK_PAYMENT_CALLBACK_URL ??
+      `${request.nextUrl.origin}/api/payments/paystack/verify`;
+    const email = String(body.email ?? `${phone}@wifi-user.local`).trim();
+
+    const initialized = await initializePaystackTransaction({
+      email,
+      amountKsh: pkg.priceKsh,
+      callbackUrl,
+      metadata: {
+        intentId,
+        type: "package_payment",
+        phone,
+        macAddress,
+        ipAddress,
+        packageId,
+        routerId,
+      },
+    }).catch((error: Error) => error);
+
+    if (initialized instanceof Error) {
+      return NextResponse.json({ error: initialized.message }, { status: 400 });
+    }
+
+    await mutateDb((current) => {
+      current.paymentIntents.push({
+        id: intentId,
+        phone,
+        macAddress,
+        ipAddress,
+        packageId,
+        routerId,
+        amountKsh: pkg.priceKsh,
+        method,
+        status: "pending",
+        merchantRequestId: initialized.access_code,
+        checkoutRequestId: initialized.reference,
+        createdAt: nowIso(),
+        updatedAt: nowIso(),
+      });
+    });
+
+    return NextResponse.json({
+      status: "pending",
+      method,
+      message: "Redirecting to Paystack checkout.",
+      authorizationUrl: initialized.authorization_url,
+      reference: initialized.reference,
+    });
+  }
+
   return NextResponse.json(
     {
-      error:
-        "Selected payment method is not enabled for live auto-activation yet. Use M-Pesa methods or implement Paystack verification flow before go-live.",
+      error: `Payment method '${method}' is not supported in checkout yet.`,
     },
     { status: 400 },
   );

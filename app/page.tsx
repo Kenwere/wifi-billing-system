@@ -27,7 +27,7 @@ export default function Home() {
     <>
       <Navbar
         title="WiFi Billing"
-        links={[{ label: "Documentation", href: "/docs" }]}
+        links={[]}
         authLinks={[
           { label: "Login", href: "/admin", variant: "secondary" },
           { label: "Register", href: "/admin?mode=register", variant: "primary" },
@@ -119,16 +119,6 @@ export default function Home() {
               <p>Payment is verified and internet access is granted instantly.</p>
             </article>
           </div>
-        </section>
-
-        <section className="panel" style={{ padding: 20, marginTop: 16 }}>
-          <h2 style={{ fontSize: "1.3rem", marginBottom: 8 }}>Deployment Checklist</h2>
-          <ul style={{ margin: 0, color: "var(--muted)", paddingLeft: 20, display: "grid", gap: 6 }}>
-            <li>Use Firestore with service account credentials for persistence.</li>
-            <li>Set production HTTPS and callback URLs for payment verification.</li>
-            <li>Add at least one MikroTik and download/import its generated RouterOS script.</li>
-            <li>Set package plans and payment destination per MikroTik before going live.</li>
-          </ul>
         </section>
       </main>
     </>

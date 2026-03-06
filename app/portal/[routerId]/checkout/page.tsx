@@ -30,6 +30,8 @@ export default function PortalCheckoutPage() {
   const routerId = params?.routerId ?? "";
   const packageId = search.get("packageId") ?? "";
   const voucherFromQuery = search.get("voucher") ?? "";
+  const statusFromQuery = search.get("status") ?? "";
+  const statusMessageFromQuery = search.get("message") ?? "";
   const macFromQuery = search.get("mac") ?? "";
   const ipFromQuery = search.get("ip") ?? "";
 
@@ -42,6 +44,15 @@ export default function PortalCheckoutPage() {
   useEffect(() => {
     if (voucherFromQuery) setVoucherCode(voucherFromQuery);
   }, [voucherFromQuery]);
+
+  useEffect(() => {
+    if (!statusFromQuery || !statusMessageFromQuery) return;
+    if (statusFromQuery === "ok") {
+      setMessage(statusMessageFromQuery);
+      return;
+    }
+    setMessage(statusMessageFromQuery);
+  }, [statusFromQuery, statusMessageFromQuery]);
 
   useEffect(() => {
     if (!routerId || !packageId) return;
@@ -70,9 +81,12 @@ export default function PortalCheckoutPage() {
           macAddress: macFromQuery,
           ipAddress: ipFromQuery,
           packageId: selectedPackage.id,
-          method: "mpesa_paybill",
         }),
       });
+      if (res.authorizationUrl) {
+        window.location.href = String(res.authorizationUrl);
+        return;
+      }
       if (res.status === "pending") {
         setMessage("Payment prompt sent to your phone. Enter your M-Pesa PIN to complete.");
       } else {

@@ -1,8 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { mutateDb } from "@/lib/db";
 import { processPaymentAndActivateSession } from "@/lib/billing";
+import { disconnectInternetAccess } from "@/lib/mikrotik";
 import { normalizeMac, sanitizePhone } from "@/lib/utils";
 import crypto from "crypto";
+import { nowIso } from "@/lib/utils";
 
 function buildPseudoMac(seed: string): string {
   const hash = crypto.createHash("sha256").update(seed).digest("hex");
@@ -38,15 +40,48 @@ export async function POST(request: NextRequest) {
     ? normalizeMac(rawMac)
     : buildPseudoMac(`${phone}|${routerId}|${ipAddress}|${request.headers.get("user-agent") ?? ""}`);
 
-  const voucher = await mutateDb((db) => {
+  const voucher = await mutateDb(async (db) => {
     const item = db.vouchers.find((v) => v.code === code);
     if (!item) throw new Error("Voucher not found");
     if (item.status === "used") throw new Error("Voucher already used");
     if (new Date(item.expiryDate) < new Date()) throw new Error("Voucher expired");
+
+    const router = db.routers.find((r) => r.id === routerId);
+    if (!router) throw new Error("Router not found");
+
+    const activeSessions = db.sessions.filter(
+      (s) => s.routerId === routerId && s.phone === phone && s.status === "active",
+    );
+    for (const session of activeSessions) {
+      session.status = "disconnected";
+      session.manualTerminationReason = "voucher_reset";
+      session.logoutTime = nowIso();
+      session.durationUsedMinutes = Math.max(
+        0,
+        Math.floor(
+          (new Date(session.logoutTime).getTime() - new Date(session.loginTime).getTime()) /
+            (1000 * 60),
+        ),
+      );
+      await disconnectInternetAccess(router, session.macAddress);
+    }
+
+    const knownUser = db.hotspotUsers
+      .filter((u) => u.phone === phone)
+      .sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime())[0];
+    const lastSession = db.sessions
+      .filter((s) => s.routerId === routerId && s.phone === phone)
+      .sort((a, b) => new Date(b.loginTime).getTime() - new Date(a.loginTime).getTime())[0];
+
+    const resolvedMac = rawMac
+      ? normalizeMac(rawMac)
+      : normalizeMac(lastSession?.macAddress || knownUser?.macAddress || macAddress);
+    const resolvedIp = ipAddress || lastSession?.ipAddress || knownUser?.lastIp || "0.0.0.0";
+
     item.status = "used";
     item.usedByPhone = phone;
     item.usedAt = new Date().toISOString();
-    return item;
+    return { voucher: item, macAddress: resolvedMac, ipAddress: resolvedIp };
   }).catch((error: Error) => error);
 
   if (voucher instanceof Error) {
@@ -55,9 +90,9 @@ export async function POST(request: NextRequest) {
 
   const result = await processPaymentAndActivateSession({
     phone,
-    macAddress,
-    ipAddress,
-    packageId: voucher.packageId,
+    macAddress: voucher.macAddress,
+    ipAddress: voucher.ipAddress,
+    packageId: voucher.voucher.packageId,
     routerId,
     method: "other",
   }).catch((error: Error) => error);
