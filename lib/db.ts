@@ -9,6 +9,17 @@ const DATA_DIR = path.join(process.cwd(), "data");
 const DATA_FILE = path.join(DATA_DIR, "db.json");
 const FIREBASE_COLLECTION = "app_state";
 const FIREBASE_DOC_ID = "singleton";
+const FIREBASE_COL = {
+  tenant: "tenant",
+  adminUsers: "admin_users",
+  routers: "routers",
+  packages: "packages",
+  hotspotUsers: "hotspot_users",
+  sessions: "sessions",
+  payments: "payments",
+  paymentIntents: "payment_intents",
+  vouchers: "vouchers",
+} as const;
 
 let cache: Database | null = null;
 const IS_PROD = process.env.NODE_ENV === "production";
@@ -88,18 +99,76 @@ async function readFromFirebase(): Promise<Database> {
   const ref = db.collection(FIREBASE_COLLECTION).doc(FIREBASE_DOC_ID);
   const snap = await ref.get();
   if (snap.exists) {
-    const data = snap.data() as { payload?: Database };
+    const data = snap.data() as { payload?: Database; tenant?: Database["tenant"] };
     if (data?.payload) return data.payload;
+    if (data?.tenant) {
+      return {
+        tenant: data.tenant,
+        adminUsers: [],
+        routers: [],
+        packages: [],
+        hotspotUsers: [],
+        sessions: [],
+        payments: [],
+        paymentIntents: [],
+        vouchers: [],
+      };
+    }
   }
   const seeded = seedDatabase();
-  await ref.set({ payload: seeded, updatedAt: nowIso() }, { merge: true });
+  await ref.set({ payload: seeded, tenant: seeded.tenant, updatedAt: nowIso() }, { merge: true });
   return seeded;
+}
+
+async function mirrorCollection(name: string, items: Array<Record<string, unknown>>): Promise<void> {
+  const db = firestore();
+  const col = db.collection(name);
+  const current = await col.get();
+  const incomingIds = new Set(items.map((i) => String(i.id)));
+
+  const ops: Array<() => Promise<void>> = [];
+
+  for (const doc of current.docs) {
+    if (!incomingIds.has(doc.id)) {
+      ops.push(async () => {
+        await doc.ref.delete();
+      });
+    }
+  }
+  for (const item of items) {
+    const id = String(item.id);
+    ops.push(async () => {
+      await col.doc(id).set(sanitizeForStorage(item), { merge: true });
+    });
+  }
+
+  for (let i = 0; i < ops.length; i += 250) {
+    const slice = ops.slice(i, i + 250);
+    await Promise.all(slice.map((fn) => fn()));
+  }
+}
+
+function toMirrorItems<T extends { id: string }>(items: T[]): Array<Record<string, unknown>> {
+  return items as unknown as Array<Record<string, unknown>>;
 }
 
 async function writeToFirebase(next: Database): Promise<void> {
   const db = firestore();
   const ref = db.collection(FIREBASE_COLLECTION).doc(FIREBASE_DOC_ID);
-  await ref.set({ payload: sanitizeForStorage(next), updatedAt: nowIso() }, { merge: true });
+  const clean = sanitizeForStorage(next);
+  await ref.set({ payload: clean, tenant: clean.tenant, updatedAt: nowIso() }, { merge: true });
+
+  await Promise.all([
+    db.collection(FIREBASE_COL.tenant).doc(clean.tenant.id).set(clean.tenant, { merge: true }),
+    mirrorCollection(FIREBASE_COL.adminUsers, toMirrorItems(clean.adminUsers)),
+    mirrorCollection(FIREBASE_COL.routers, toMirrorItems(clean.routers)),
+    mirrorCollection(FIREBASE_COL.packages, toMirrorItems(clean.packages)),
+    mirrorCollection(FIREBASE_COL.hotspotUsers, toMirrorItems(clean.hotspotUsers)),
+    mirrorCollection(FIREBASE_COL.sessions, toMirrorItems(clean.sessions)),
+    mirrorCollection(FIREBASE_COL.payments, toMirrorItems(clean.payments)),
+    mirrorCollection(FIREBASE_COL.paymentIntents, toMirrorItems(clean.paymentIntents)),
+    mirrorCollection(FIREBASE_COL.vouchers, toMirrorItems(clean.vouchers)),
+  ]);
 }
 
 async function ensureDataFile() {
