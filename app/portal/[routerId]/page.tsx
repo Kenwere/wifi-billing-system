@@ -6,6 +6,7 @@ import { useParams, useSearchParams } from "next/navigation";
 import { Navbar } from "@/components/Navbar";
 
 type PackageItem = { id: string; name: string; priceKsh: number; durationMinutes: number };
+type RouterInfo = { paymentDestination?: { enabledMethods?: string[] } };
 
 async function jfetch(url: string, init?: RequestInit) {
   const res = await fetch(url, {
@@ -41,6 +42,7 @@ export default function PortalPage() {
   const [businessName, setBusinessName] = useState("WiFi");
   const [businessLogoUrl, setBusinessLogoUrl] = useState("");
   const [packages, setPackages] = useState<PackageItem[]>([]);
+  const [defaultPaymentMethod, setDefaultPaymentMethod] = useState<string>("mpesa_till");
   const [voucherCode, setVoucherCode] = useState("");
   const [locked, setLocked] = useState(false);
   const [message, setMessage] = useState("");
@@ -54,6 +56,8 @@ export default function PortalPage() {
         setBusinessName(data.tenant?.businessName ?? "WiFi");
         setBusinessLogoUrl(data.tenant?.businessLogoUrl ?? "");
         setLocked(Boolean(data.subscription?.locked));
+        const router = (data.router ?? {}) as RouterInfo;
+        setDefaultPaymentMethod(router.paymentDestination?.enabledMethods?.[0] ?? "mpesa_till");
       } catch (err) {
         setMessage((err as Error).message);
       }
@@ -122,7 +126,11 @@ export default function PortalPage() {
                   {group.items.map((pkg) => (
                     <Link
                       key={pkg.id}
-                      href={`/portal/${encodeURIComponent(routerId)}/checkout?packageId=${encodeURIComponent(pkg.id)}&${deviceQuery}`}
+                      href={
+                        defaultPaymentMethod === "paystack"
+                          ? `/portal/${encodeURIComponent(routerId)}/checkout?packageId=${encodeURIComponent(pkg.id)}&method=paystack&autoPay=1&${deviceQuery}`
+                          : `/portal/${encodeURIComponent(routerId)}/checkout?packageId=${encodeURIComponent(pkg.id)}&method=${encodeURIComponent(defaultPaymentMethod)}&${deviceQuery}`
+                      }
                       className="panel package-row"
                       style={{
                         padding: "8px 10px",

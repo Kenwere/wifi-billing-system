@@ -1,6 +1,6 @@
 "use client";
 
-import { FormEvent, useEffect, useState } from "react";
+import { FormEvent, useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { useParams, useSearchParams } from "next/navigation";
 import { Navbar } from "@/components/Navbar";
@@ -31,6 +31,8 @@ export default function PortalCheckoutPage() {
   const routerId = params?.routerId ?? "";
   const packageId = search.get("packageId") ?? "";
   const voucherFromQuery = search.get("voucher") ?? "";
+  const methodFromQuery = search.get("method") ?? "";
+  const autoPayFromQuery = search.get("autoPay") === "1";
   const statusFromQuery = search.get("status") ?? "";
   const statusMessageFromQuery = search.get("message") ?? "";
   const macFromQuery = search.get("mac") ?? "";
@@ -42,6 +44,7 @@ export default function PortalCheckoutPage() {
   const [voucherCode, setVoucherCode] = useState("");
   const [message, setMessage] = useState("");
   const [loading, setLoading] = useState(false);
+  const [autoStarted, setAutoStarted] = useState(false);
 
   useEffect(() => {
     if (voucherFromQuery) setVoucherCode(voucherFromQuery);
@@ -65,15 +68,14 @@ export default function PortalCheckoutPage() {
         setSelectedPackage(found);
         const router = (data.router ?? {}) as RouterInfo;
         const methods = router.paymentDestination?.enabledMethods ?? [];
-        setSelectedMethod(methods[0] ?? "mpesa_till");
+        setSelectedMethod(methodFromQuery || methods[0] || "mpesa_till");
       } catch (err) {
         setMessage((err as Error).message);
       }
     })();
-  }, [routerId, packageId]);
+  }, [routerId, packageId, methodFromQuery]);
 
-  async function sendPrompt(e: FormEvent) {
-    e.preventDefault();
+  const startCheckout = useCallback(async () => {
     if (!selectedPackage) return;
     setLoading(true);
     setMessage("");
@@ -83,7 +85,7 @@ export default function PortalCheckoutPage() {
         body: JSON.stringify({
           method: selectedMethod,
           routerId,
-          phone,
+          phone: selectedMethod === "paystack" ? undefined : phone,
           macAddress: macFromQuery,
           ipAddress: ipFromQuery,
           packageId: selectedPackage.id,
@@ -103,7 +105,25 @@ export default function PortalCheckoutPage() {
     } finally {
       setLoading(false);
     }
+  }, [selectedPackage, selectedMethod, routerId, phone, macFromQuery, ipFromQuery]);
+
+  async function sendPrompt(e: FormEvent) {
+    e.preventDefault();
+    await startCheckout();
   }
+
+  useEffect(() => {
+    if (
+      selectedMethod === "paystack" &&
+      autoPayFromQuery &&
+      selectedPackage &&
+      !autoStarted &&
+      !loading
+    ) {
+      setAutoStarted(true);
+      void startCheckout();
+    }
+  }, [selectedMethod, autoPayFromQuery, selectedPackage, autoStarted, loading, startCheckout]);
 
   async function redeemVoucher(e: FormEvent) {
     e.preventDefault();
@@ -133,7 +153,7 @@ export default function PortalCheckoutPage() {
       <Navbar title="WiFi Checkout" showLogo={false} links={[{ label: "Back to Packages", href: `/portal/${routerId}` }]} />
       <main className="shell" style={{ maxWidth: 620, paddingTop: 24 }}>
         <section className="panel" style={{ padding: 16 }}>
-          <h2>Enter Phone Number</h2>
+          <h2>{selectedMethod === "paystack" ? "Redirecting to Paystack" : "Enter Phone Number"}</h2>
           {selectedPackage ? (
             <p style={{ color: "var(--muted)" }}>
               Package: <b>{selectedPackage.name}</b> ({formatDuration(selectedPackage.durationMinutes)}) - KSH{" "}
@@ -143,12 +163,18 @@ export default function PortalCheckoutPage() {
             <p style={{ color: "var(--danger)" }}>Package not found.</p>
           )}
           <form className="grid" onSubmit={sendPrompt}>
-            <input
-              placeholder="0712345678"
-              value={phone}
-              onChange={(e) => setPhone(e.target.value)}
-              required
-            />
+            {selectedMethod !== "paystack" ? (
+              <input
+                placeholder="0712345678"
+                value={phone}
+                onChange={(e) => setPhone(e.target.value)}
+                required
+              />
+            ) : (
+              <p style={{ color: "var(--muted)", margin: 0 }}>
+                Please wait as we open Paystack checkout.
+              </p>
+            )}
             <button className="btn btn-primary" disabled={!selectedPackage || loading}>
               {loading
                 ? "Processing..."
@@ -157,6 +183,11 @@ export default function PortalCheckoutPage() {
                   : "Send M-Pesa Prompt"}
             </button>
           </form>
+          {selectedMethod === "paystack" && (
+            <p style={{ color: "var(--muted)", marginTop: 8 }}>
+              If this page does not open, ask admin to allow Paystack domains in MikroTik walled-garden.
+            </p>
+          )}
           <div style={{ marginTop: 10 }}>
             <Link href={`/portal/${routerId}`} style={{ color: "var(--primary)" }}>
               Choose another package

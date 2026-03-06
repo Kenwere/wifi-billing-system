@@ -20,10 +20,16 @@ function buildPseudoMac(seed: string): string {
   return bytes.join(":").toUpperCase();
 }
 
+function buildPseudoPhone(seed: string): string {
+  const hex = crypto.createHash("sha256").update(seed).digest("hex");
+  const digits = hex.replace(/[a-f]/g, (c) => String(c.charCodeAt(0) % 10));
+  return `2547${digits.slice(0, 8)}`;
+}
+
 export async function POST(request: NextRequest) {
   const body = await request.json();
   const requestedMethod = String(body.method ?? "").trim() as PaymentMethod;
-  const phone = String(body.phone ?? "");
+  const rawPhone = String(body.phone ?? "").trim();
   const macBody = String(body.macAddress ?? "");
   const macQuery = request.nextUrl.searchParams.get("macAddress") ?? request.nextUrl.searchParams.get("mac") ?? "";
   const rawMac = macBody || macQuery;
@@ -32,15 +38,15 @@ export async function POST(request: NextRequest) {
   const ipAddress = String(body.ipAddress ?? inferredIp);
   const packageId = String(body.packageId ?? "");
   const routerId = String(body.routerId ?? "");
-  if (!phone || !packageId || !routerId) {
+  if (!packageId || !routerId) {
     return NextResponse.json(
-      { error: "phone, packageId and routerId are required" },
+      { error: "packageId and routerId are required" },
       { status: 400 },
     );
   }
   const macAddress = rawMac
     ? normalizeMac(rawMac)
-    : buildPseudoMac(`${phone}|${routerId}|${ipAddress}|${request.headers.get("user-agent") ?? ""}`);
+    : buildPseudoMac(`${rawPhone}|${routerId}|${ipAddress}|${request.headers.get("user-agent") ?? ""}`);
 
   const db = await readDb();
   const pkg = db.packages.find((p) => p.id === packageId && p.active);
@@ -70,6 +76,15 @@ export async function POST(request: NextRequest) {
     );
   }
   const method = (requestedMethod || enabledMethods[0] || "mpesa_till") as PaymentMethod;
+  const phone =
+    rawPhone ||
+    (method === "paystack"
+      ? buildPseudoPhone(`${routerId}|${packageId}|${macAddress}|${ipAddress}`)
+      : "");
+
+  if ((method === "mpesa_till" || method === "mpesa_paybill" || method === "mpesa_phone") && !phone) {
+    return NextResponse.json({ error: "Phone number is required for M-Pesa checkout." }, { status: 400 });
+  }
 
   if (method === "mpesa_till" || method === "mpesa_paybill" || method === "mpesa_phone") {
     const intentId = randomId("pint");

@@ -74,9 +74,24 @@ export function buildMikrotikScript(router: RouterConfig, appBaseUrl: string): s
   const safeName = router.name.replace(/"/g, "");
   const lanBridge = `br-hotspot-${router.id.slice(-6)}`;
   const portalBase = appBaseUrl.replace(/\/+$/, "");
+  const portalHost = (() => {
+    try {
+      return new URL(portalBase).hostname;
+    } catch {
+      return portalBase.replace(/^https?:\/\//, "");
+    }
+  })();
   const portalUrl = `${portalBase}/portal/${router.id}`;
   const portalUrlWithDevice = `${portalUrl}?mac=$(mac)&ip=$(ip)`;
   const notes: string[] = [];
+  const usesPaystack = (router.paymentDestination?.enabledMethods ?? []).includes("paystack");
+  const paystackHosts = [
+    "paystack.com",
+    "*.paystack.com",
+    "checkout.paystack.com",
+    "api.paystack.co",
+    "js.paystack.co",
+  ];
 
   if (router.setupOptions.disableHotspotSharing) {
     notes.push("Hotspot sharing disabled (shared-users=1)");
@@ -129,14 +144,21 @@ export function buildMikrotikScript(router: RouterConfig, appBaseUrl: string): s
       `rate-limit=${router.setupOptions.enableBandwidthControl ? "5M/5M" : "0/0"}`,
     "",
     "# 6) Walled garden: allow payment + backend while user is unauthenticated",
-    "/ip hotspot walled-garden ip",
-    `add dst-host=${portalBase.replace(/^https?:\/\//, "")} action=accept`,
+    "/ip hotspot walled-garden",
+    `add action=allow dst-host=${portalHost}`,
+    `add action=allow dst-host=*.${portalHost}`,
+    ...(usesPaystack
+      ? [
+          ...paystackHosts.map((host) => `add action=allow dst-host=${host}`),
+        ]
+      : []),
     "",
     "# 7) Redirect hotspot login page to app portal",
     `:local wifiBillingPortalUrl "${portalUrlWithDevice}"`,
-    ":local wifiBillingLoginHtml (\"<!doctype html><html><head><meta http-equiv=\\\"refresh\\\" content=\\\"0; url=\" . $wifiBillingPortalUrl . \"\\\"></head><body>Redirecting...</body></html>\")",
+    ":local wifiBillingLoginHtml (\"<!doctype html><html><head><meta charset=\\\"utf-8\\\"><meta http-equiv=\\\"refresh\\\" content=\\\"0; url=\" . $wifiBillingPortalUrl . \"\\\"><script>location.replace('\" . $wifiBillingPortalUrl . \"');</script></head><body>Redirecting...</body></html>\")",
     ":do { /file set [find where name=\"hotspot/login.html\"] contents=$wifiBillingLoginHtml } on-error={ :log warning \"Could not update hotspot/login.html on first attempt\" }",
-    ":delay 2s",
+    ":do { /file set [find where name=\"hotspot/alogin.html\"] contents=$wifiBillingLoginHtml } on-error={ :log warning \"Could not update hotspot/alogin.html\" }",
+    ":delay 1s",
     ":do { /file set [find where name=\"hotspot/login.html\"] contents=$wifiBillingLoginHtml } on-error={ :log warning \"Portal redirect still not applied. Create hotspot files and re-import script.\" }",
     "",
     "# 8) Optional tracking/logging toggles",
