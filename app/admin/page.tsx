@@ -128,9 +128,9 @@ export default function AdminPage() {
   });
   const [packageForm, setPackageForm] = useState({
     name: "",
-    priceKsh: 10,
-    durationMinutes: 120,
-    speedMbps: 5,
+    priceKsh: "",
+    durationMinutes: "",
+    speedMbps: "",
     unlimitedData: true,
     dataLimitMb: "",
     routerId: "",
@@ -666,9 +666,11 @@ export default function AdminPage() {
                         method: "POST",
                         body: JSON.stringify({
                           name: packageForm.name,
-                          priceKsh: packageForm.priceKsh,
-                          durationMinutes: packageForm.durationMinutes,
-                          speedLimitKbps: Math.round(packageForm.speedMbps * 1000),
+                          priceKsh: Number(packageForm.priceKsh),
+                          durationMinutes: Number(packageForm.durationMinutes),
+                          speedLimitKbps: packageForm.speedMbps
+                            ? Math.round(Number(packageForm.speedMbps) * 1000)
+                            : undefined,
                           dataLimitMb: packageForm.unlimitedData
                             ? undefined
                             : Number(packageForm.dataLimitMb || 0),
@@ -679,12 +681,12 @@ export default function AdminPage() {
                   }}
                 >
                   <input value={packageForm.name} onChange={(e) => setPackageForm({ ...packageForm, name: e.target.value })} placeholder="Package name" />
-                  <input type="number" value={packageForm.priceKsh} onChange={(e) => setPackageForm({ ...packageForm, priceKsh: Number(e.target.value) })} placeholder="Price" />
-                  <input type="number" value={packageForm.durationMinutes} onChange={(e) => setPackageForm({ ...packageForm, durationMinutes: Number(e.target.value) })} placeholder="Duration in minutes" />
+                  <input type="number" value={packageForm.priceKsh} onChange={(e) => setPackageForm({ ...packageForm, priceKsh: e.target.value })} placeholder="Price in KSH" />
+                  <input type="number" value={packageForm.durationMinutes} onChange={(e) => setPackageForm({ ...packageForm, durationMinutes: e.target.value })} placeholder="Duration (minutes)" />
                   <input
                     type="number"
                     value={packageForm.speedMbps}
-                    onChange={(e) => setPackageForm({ ...packageForm, speedMbps: Number(e.target.value) })}
+                    onChange={(e) => setPackageForm({ ...packageForm, speedMbps: e.target.value })}
                     placeholder="Speed (Mbps)"
                   />
                   <label style={{ display: "flex", gap: 8, alignItems: "center" }}>
