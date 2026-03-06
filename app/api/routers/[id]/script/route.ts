@@ -23,6 +23,9 @@ export async function GET(request: NextRequest, context: Params) {
   if (!mikrotik) {
     return NextResponse.json({ error: "MikroTik not found" }, { status: 404 });
   }
+  if (gate.auth.role !== "super_admin" && mikrotik.createdBy !== gate.auth.sub) {
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  }
 
   const appBaseUrl = process.env.APP_BASE_URL ?? "https://wifi-billing-system-kappa.vercel.app";
   const script = buildMikrotikScript(mikrotik, appBaseUrl);

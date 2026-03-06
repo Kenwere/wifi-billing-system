@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { mutateDb } from "@/lib/db";
+import { mutateDb, readDb } from "@/lib/db";
 import { requireRole } from "@/lib/guards";
 import { nowIso, randomId } from "@/lib/utils";
 
@@ -10,10 +10,12 @@ function generateCode(): string {
 export async function GET(request: NextRequest) {
   const gate = await requireRole(request, "support");
   if (!gate.ok) return gate.response;
-  const vouchers = await mutateDb((db) => {
-    db.vouchers = db.vouchers.filter((v) => v.status !== "used");
-    return db.vouchers;
-  });
+  const db = await readDb();
+  // Filter by ownership: regular users see only their own vouchers, super_admin sees all
+  let vouchers = db.vouchers.filter((v) => v.status !== "used");
+  if (gate.auth.role !== "super_admin") {
+    vouchers = vouchers.filter((v) => v.createdBy === gate.auth.sub);
+  }
   return NextResponse.json({ vouchers });
 }
 
@@ -30,6 +32,10 @@ export async function POST(request: NextRequest) {
   const voucher = await mutateDb((db) => {
     const pkg = db.packages.find((p) => p.id === packageId);
     if (!pkg) throw new Error("Package not found");
+    // Ensure user can only create vouchers for their own packages
+    if (pkg.createdBy !== gate.auth.sub && gate.auth.role !== "super_admin") {
+      throw new Error("You can only create vouchers for your own packages");
+    }
     const next = {
       id: randomId("vch"),
       code: generateCode(),
@@ -37,6 +43,7 @@ export async function POST(request: NextRequest) {
       expiryDate,
       status: "unused" as const,
       sentToPhone,
+      createdBy: gate.auth.sub,
       createdAt: nowIso(),
     };
     db.vouchers.push(next);
@@ -61,6 +68,10 @@ export async function PATCH(request: NextRequest) {
   const updated = await mutateDb((db) => {
     const voucher = db.vouchers.find((v) => v.id === id);
     if (!voucher) throw new Error("Voucher not found");
+    // Check ownership: only creator or super_admin can update
+    if (voucher.createdBy !== gate.auth.sub && gate.auth.role !== "super_admin") {
+      throw new Error("You can only edit your own vouchers");
+    }
     if (voucher.status === "used") throw new Error("Used vouchers are removed automatically");
     voucher.status = action === "deactivate" ? "inactive" : "unused";
     return voucher;
@@ -79,6 +90,12 @@ export async function DELETE(request: NextRequest) {
   if (!id) return NextResponse.json({ error: "id is required" }, { status: 400 });
 
   const deleted = await mutateDb((db) => {
+    const voucher = db.vouchers.find((v) => v.id === id);
+    if (!voucher) throw new Error("Voucher not found");
+    // Check ownership: only creator or super_admin can delete
+    if (voucher.createdBy !== gate.auth.sub && gate.auth.role !== "super_admin") {
+      throw new Error("You can only delete your own vouchers");
+    }
     const before = db.vouchers.length;
     db.vouchers = db.vouchers.filter((v) => v.id !== id);
     if (db.vouchers.length === before) throw new Error("Voucher not found");

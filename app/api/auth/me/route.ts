@@ -13,6 +13,8 @@ export async function GET(request: NextRequest) {
       id: user.id,
       fullName: user.fullName,
       email: user.email,
+      businessName: user.businessName,
+      businessLogoUrl: user.businessLogoUrl ?? "",
       role: user.role,
       isActive: user.isActive,
       emailVerified: user.emailVerified,

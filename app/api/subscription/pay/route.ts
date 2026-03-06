@@ -21,11 +21,13 @@ export async function POST(request: NextRequest) {
   if (!email) return NextResponse.json({ error: "Email is required" }, { status: 400 });
 
   const result = await mutateDb(async (db) => {
-    const revenue = monthlyRevenueNow(db.payments);
+    const me = db.adminUsers.find((u) => u.id === gate.auth.sub);
+    if (!me) throw new Error("Unauthorized");
+    const revenue = monthlyRevenueNow(db.payments.filter((p) => p.createdBy === gate.auth.sub));
     const amountKsh = computeMonthlyFee(revenue);
     const callbackUrl =
       process.env.PAYSTACK_CALLBACK_URL ??
-      `${request.nextUrl.origin}/api/subscription/verify?tenantId=${encodeURIComponent(db.tenant.id)}`;
+      `${request.nextUrl.origin}/api/subscription/verify?adminId=${encodeURIComponent(me.id)}`;
     const reference = `sub_${Date.now()}_${Math.floor(Math.random() * 10000)}`;
 
     const initialized = await initializePaystackTransaction({
@@ -33,13 +35,13 @@ export async function POST(request: NextRequest) {
       amountKsh,
       callbackUrl,
       metadata: {
-        tenantId: db.tenant.id,
+        adminId: me.id,
         type: "subscription",
         amountKsh,
       },
     });
 
-    db.tenant.subscription.pendingPaystackReference = initialized.reference || reference;
+    me.pendingPaystackReference = initialized.reference || reference;
     return {
       authorizationUrl: initialized.authorization_url,
       amountKsh,

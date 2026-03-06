@@ -17,7 +17,11 @@ export async function GET(request: NextRequest) {
   const gate = await requireRole(request, "support");
   if (!gate.ok) return gate.response;
   const db = await readDb();
-  return NextResponse.json({ routers: db.routers });
+  // Filter by ownership: regular users see only their own routers, super_admin sees all
+  const routers = gate.auth.role === "super_admin" 
+    ? db.routers 
+    : db.routers.filter((r) => r.createdBy === gate.auth.sub);
+  return NextResponse.json({ routers });
 }
 
 export async function POST(request: NextRequest) {
@@ -25,6 +29,12 @@ export async function POST(request: NextRequest) {
   if (!gate.ok) return gate.response;
   const body = await request.json();
   const router = await mutateDb(async (db) => {
+    if (gate.auth.role !== "super_admin") {
+      const ownedCount = db.routers.filter((r) => r.createdBy === gate.auth.sub).length;
+      if (ownedCount >= 2) {
+        throw new Error("Admin accounts can add a maximum of 2 MikroTiks");
+      }
+    }
     const hostFromBody = String(body.host ?? "").trim();
     const next = {
       id: randomId("router"),
@@ -42,6 +52,7 @@ export async function POST(request: NextRequest) {
         enableSessionLogging: Boolean(body.setupOptions?.enableSessionLogging ?? true),
       },
       active: true,
+      createdBy: gate.auth.sub,
       createdAt: nowIso(),
     };
     if (!next.name) throw new Error("name is required");
@@ -65,6 +76,10 @@ export async function PATCH(request: NextRequest) {
   const updated = await mutateDb((db) => {
     const router = db.routers.find((r) => r.id === id);
     if (!router) throw new Error("Router not found");
+    // Check ownership: only creator or super_admin can update
+    if (router.createdBy !== gate.auth.sub && gate.auth.role !== "super_admin") {
+      throw new Error("You can only edit your own routers");
+    }
     if (body.name !== undefined) router.name = String(body.name);
     if (body.location !== undefined) router.location = String(body.location);
     if (body.host !== undefined) router.host = String(body.host);
@@ -95,6 +110,10 @@ export async function DELETE(request: NextRequest) {
   const result = await mutateDb(async (db) => {
     const router = db.routers.find((r) => r.id === id);
     if (!router) throw new Error("MikroTik not found");
+    // Check ownership: only creator or super_admin can delete
+    if (router.createdBy !== gate.auth.sub && gate.auth.role !== "super_admin") {
+      throw new Error("You can only delete your own routers");
+    }
 
     const activeSessions = db.sessions.filter((s) => s.routerId === id && s.status === "active");
     for (const session of activeSessions) {

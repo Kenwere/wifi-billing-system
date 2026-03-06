@@ -42,10 +42,13 @@ export async function POST(request: NextRequest) {
     }
     const trialEnds = new Date();
     trialEnds.setDate(trialEnds.getDate() + 14);
+    const creator = db.adminUsers.find((u) => u.id === gate.auth.sub);
     const next = {
       id: randomId("admin"),
       fullName,
       email,
+      businessName: creator?.businessName ?? db.tenant.businessName ?? "",
+      businessLogoUrl: creator?.businessLogoUrl ?? db.tenant.businessLogoUrl ?? "",
       passwordHash: hashPassword(password),
       role,
       isActive: true,

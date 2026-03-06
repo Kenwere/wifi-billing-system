@@ -13,8 +13,12 @@ function addMonthsKeepingAnchor(from: Date, months: number, anchorDay: number): 
 
 export async function GET(request: NextRequest) {
   const reference = request.nextUrl.searchParams.get("reference");
+  const adminId = request.nextUrl.searchParams.get("adminId");
   if (!reference) {
     return NextResponse.json({ error: "reference is required" }, { status: 400 });
+  }
+  if (!adminId) {
+    return NextResponse.json({ error: "adminId is required" }, { status: 400 });
   }
 
   const verified = await verifyPaystackTransaction(reference).catch((error: Error) => error);
@@ -27,23 +31,23 @@ export async function GET(request: NextRequest) {
   }
 
   await mutateDb((db) => {
+    const user = db.adminUsers.find((u) => u.id === adminId);
+    if (!user) throw new Error("Admin not found");
+    if (user.pendingPaystackReference && user.pendingPaystackReference !== reference) {
+      throw new Error("Reference mismatch");
+    }
     const now = new Date();
-    const currentPaidUntil = db.tenant.subscription.paidUntil
-      ? new Date(db.tenant.subscription.paidUntil)
+    const currentPaidUntil = user.paymentExpiresAt
+      ? new Date(user.paymentExpiresAt)
       : null;
     const startDate = currentPaidUntil && currentPaidUntil > now ? currentPaidUntil : now;
-    const anchorDay = db.tenant.subscription.billingAnchorDay ?? startDate.getUTCDate();
+    const anchorDay = user.billingAnchorDay ?? startDate.getUTCDate();
     const nextPaidUntil = addMonthsKeepingAnchor(startDate, 1, anchorDay);
 
-    db.tenant.subscription.billingAnchorDay = anchorDay;
-    db.tenant.subscription.paidUntil = nextPaidUntil.toISOString();
-    db.tenant.subscription.pendingPaystackReference = undefined;
-    db.tenant.subscription.lockReason = undefined;
-    db.adminUsers = db.adminUsers.map((user) => ({
-      ...user,
-      paymentStatus: "paid",
-      paymentExpiresAt: nextPaidUntil.toISOString(),
-    }));
+    user.billingAnchorDay = anchorDay;
+    user.paymentStatus = "paid";
+    user.paymentExpiresAt = nextPaidUntil.toISOString();
+    user.pendingPaystackReference = undefined;
   });
 
   return NextResponse.redirect(new URL("/admin?subscription=paid", request.url));

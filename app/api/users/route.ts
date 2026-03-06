@@ -6,5 +6,10 @@ export async function GET(request: NextRequest) {
   const gate = await requireRole(request, "support");
   if (!gate.ok) return gate.response;
   const db = await readDb();
-  return NextResponse.json({ users: db.hotspotUsers });
+  if (gate.auth.role === "super_admin") {
+    return NextResponse.json({ users: db.hotspotUsers });
+  }
+  return NextResponse.json({
+    users: db.hotspotUsers.filter((u) => u.createdBy === gate.auth.sub),
+  });
 }

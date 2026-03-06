@@ -156,19 +156,32 @@ async function writeToFirebase(next: Database): Promise<void> {
   const db = firestore();
   const ref = db.collection(FIREBASE_COLLECTION).doc(FIREBASE_DOC_ID);
   const clean = sanitizeForStorage(next);
-  await ref.set({ payload: clean, tenant: clean.tenant, updatedAt: nowIso() }, { merge: true });
+  
+  try {
+    await ref.set({ payload: clean, tenant: clean.tenant, updatedAt: nowIso() }, { merge: true });
+    console.log("[Firebase] Main payload written successfully");
+  } catch (error) {
+    console.error("[Firebase] Failed to write main payload:", (error as Error).message);
+    throw error;
+  }
 
-  await Promise.all([
-    db.collection(FIREBASE_COL.tenant).doc(clean.tenant.id).set(clean.tenant, { merge: true }),
-    mirrorCollection(FIREBASE_COL.adminUsers, toMirrorItems(clean.adminUsers)),
-    mirrorCollection(FIREBASE_COL.routers, toMirrorItems(clean.routers)),
-    mirrorCollection(FIREBASE_COL.packages, toMirrorItems(clean.packages)),
-    mirrorCollection(FIREBASE_COL.hotspotUsers, toMirrorItems(clean.hotspotUsers)),
-    mirrorCollection(FIREBASE_COL.sessions, toMirrorItems(clean.sessions)),
-    mirrorCollection(FIREBASE_COL.payments, toMirrorItems(clean.payments)),
-    mirrorCollection(FIREBASE_COL.paymentIntents, toMirrorItems(clean.paymentIntents)),
-    mirrorCollection(FIREBASE_COL.vouchers, toMirrorItems(clean.vouchers)),
-  ]);
+  try {
+    await Promise.all([
+      db.collection(FIREBASE_COL.tenant).doc(clean.tenant.id).set(clean.tenant, { merge: true }),
+      mirrorCollection(FIREBASE_COL.adminUsers, toMirrorItems(clean.adminUsers)),
+      mirrorCollection(FIREBASE_COL.routers, toMirrorItems(clean.routers)),
+      mirrorCollection(FIREBASE_COL.packages, toMirrorItems(clean.packages)),
+      mirrorCollection(FIREBASE_COL.hotspotUsers, toMirrorItems(clean.hotspotUsers)),
+      mirrorCollection(FIREBASE_COL.sessions, toMirrorItems(clean.sessions)),
+      mirrorCollection(FIREBASE_COL.payments, toMirrorItems(clean.payments)),
+      mirrorCollection(FIREBASE_COL.paymentIntents, toMirrorItems(clean.paymentIntents)),
+      mirrorCollection(FIREBASE_COL.vouchers, toMirrorItems(clean.vouchers)),
+    ]);
+    console.log("[Firebase] All collections mirrored successfully");
+  } catch (error) {
+    console.error("[Firebase] Failed to mirror collections:", (error as Error).message);
+    throw error;
+  }
 }
 
 async function ensureDataFile() {
@@ -195,16 +208,82 @@ function normalizeLegacyShape(db: Database): Database {
   const defaultTrial = db.tenant.subscription.trialEndsAt || nowIso();
   db.adminUsers = db.adminUsers.map((user) => ({
     ...user,
+    businessName: user.businessName ?? db.tenant.businessName ?? "",
+    businessLogoUrl: user.businessLogoUrl ?? db.tenant.businessLogoUrl ?? "",
     emailVerified: user.emailVerified ?? true,
     emailVerificationCodeHash: user.emailVerificationCodeHash ?? undefined,
     emailVerificationExpiresAt: user.emailVerificationExpiresAt ?? undefined,
     paymentStatus: user.paymentStatus ?? "trial",
     paymentExpiresAt: user.paymentExpiresAt ?? defaultTrial,
     trialEndsAt: user.trialEndsAt ?? defaultTrial,
+    billingAnchorDay: user.billingAnchorDay ?? undefined,
+    pendingPaystackReference: user.pendingPaystackReference ?? undefined,
   }));
+  
+  // Add createdBy to legacy items for data isolation
+  const firstAdmin = db.adminUsers[0];
+  const defaultCreatedBy = firstAdmin?.id ?? "system";
+  
+  db.routers = db.routers.map((r) => ({
+    ...r,
+    createdBy: r.createdBy ?? defaultCreatedBy,
+  }));
+  
+  db.packages = db.packages.map((p) => ({
+    ...p,
+    createdBy: p.createdBy ?? defaultCreatedBy,
+  }));
+  
+  db.vouchers = db.vouchers.map((v) => ({
+    ...v,
+    createdBy: v.createdBy ?? defaultCreatedBy,
+  }));
+
+  const routerOwnerById = new Map(db.routers.map((r) => [r.id, r.createdBy]));
+  const userOwnerById = new Map<string, string>();
+
+  db.hotspotUsers = db.hotspotUsers.map((u) => {
+    const owner =
+      (u as Database["hotspotUsers"][number] & { createdBy?: string }).createdBy ?? defaultCreatedBy;
+    userOwnerById.set(u.id, owner);
+    return {
+      ...u,
+      createdBy: owner,
+    };
+  });
+
+  db.sessions = db.sessions.map((s) => {
+    const owner =
+      (s as Database["sessions"][number] & { createdBy?: string }).createdBy ??
+      routerOwnerById.get(s.routerId) ??
+      userOwnerById.get(s.userId) ??
+      defaultCreatedBy;
+    return {
+      ...s,
+      createdBy: owner,
+    };
+  });
+
+  db.payments = db.payments.map((p) => {
+    const owner =
+      (p as Database["payments"][number] & { createdBy?: string }).createdBy ??
+      routerOwnerById.get(p.routerId) ??
+      defaultCreatedBy;
+    return {
+      ...p,
+      createdBy: owner,
+    };
+  });
+  
   if (!("paymentIntents" in db) || !Array.isArray(db.paymentIntents)) {
     return { ...db, paymentIntents: [] };
   }
+  db.paymentIntents = db.paymentIntents.map((i) => ({
+    ...i,
+    createdBy: (i as Database["paymentIntents"][number] & { createdBy?: string }).createdBy
+      ?? routerOwnerById.get(i.routerId)
+      ?? defaultCreatedBy,
+  }));
   return db;
 }
 
@@ -234,7 +313,6 @@ export async function readDb(): Promise<Database> {
 }
 
 export async function writeDb(next: Database): Promise<void> {
-  cache = next;
   // In local development, keep a durable fallback file.
   if (!IS_PROD) {
     await writeToFile(next);
@@ -242,14 +320,22 @@ export async function writeDb(next: Database): Promise<void> {
   if (hasFirebaseConfig()) {
     try {
       await writeToFirebase(next);
+      // Only update cache after successful write
+      cache = next;
     } catch (error) {
+      console.error("Firebase write error:", (error as Error).message);
       if (IS_PROD || !ALLOW_LOCAL_FALLBACK) {
         throw new Error(`Failed to write to Firebase: ${(error as Error).message}`);
       }
       // Local write above already preserved state for retry on next cycle.
+      // Clear cache to force fresh read on next request
+      cache = null;
     }
   } else if (IS_PROD) {
     throw new Error("Firebase is required in production. Set FIREBASE_* environment variables.");
+  } else {
+    // Local development without Firebase
+    cache = next;
   }
 }
 

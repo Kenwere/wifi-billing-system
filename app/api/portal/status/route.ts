@@ -2,7 +2,6 @@ import { NextRequest, NextResponse } from "next/server";
 import { expireAndDisconnectSessions, findReusableSession, findReusableSessionByDevice } from "@/lib/billing";
 import { readDb } from "@/lib/db";
 import { grantInternetAccess } from "@/lib/mikrotik";
-import { subscriptionState } from "@/lib/subscription";
 import { normalizeMac, sanitizePhone } from "@/lib/utils";
 
 export async function GET(request: NextRequest) {
@@ -18,11 +17,21 @@ export async function GET(request: NextRequest) {
   if (!router) {
     return NextResponse.json({ error: "Router not found" }, { status: 404 });
   }
-  const subscription = subscriptionState(db);
+  const owner = db.adminUsers.find((u) => u.id === router.createdBy);
+  const subscription = owner
+    ? {
+        locked: owner.paymentStatus === "overdue" || new Date(owner.paymentExpiresAt) <= new Date(),
+        reason:
+          owner.paymentStatus === "overdue" || new Date(owner.paymentExpiresAt) <= new Date()
+            ? "Subscription payment overdue"
+            : undefined,
+      }
+    : { locked: false as const, reason: undefined };
   const effectiveRouterId = router.id;
   const packages = db.packages.filter(
     (p) =>
       p.active &&
+      p.createdBy === router.createdBy &&
       (p.routerId === effectiveRouterId || p.routerId === "global" || p.routerId === ""),
   );
 
@@ -46,7 +55,11 @@ export async function GET(request: NextRequest) {
   }
 
   return NextResponse.json({
-    tenant: db.tenant,
+    tenant: {
+      ...db.tenant,
+      businessName: owner?.businessName || db.tenant.businessName,
+      businessLogoUrl: owner?.businessLogoUrl || db.tenant.businessLogoUrl,
+    },
     router,
     packages,
     subscription,

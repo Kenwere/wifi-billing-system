@@ -7,11 +7,15 @@ export async function GET(request: NextRequest) {
   if (!gate.ok) return gate.response;
 
   const db = await readDb();
+  const users =
+    gate.auth.role === "super_admin"
+      ? db.hotspotUsers
+      : db.hotspotUsers.filter((u) => u.createdBy === gate.auth.sub);
   const payload = {
     type: "hotspot_users_export",
     version: 1,
     exportedAt: new Date().toISOString(),
-    users: db.hotspotUsers,
+    users,
   };
 
   const fileDate = new Date().toISOString().slice(0, 10);

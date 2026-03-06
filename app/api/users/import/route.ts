@@ -26,6 +26,7 @@ function normalizeIncomingUsers(raw: unknown): HotspotUser[] {
       phone,
       macAddress,
       lastIp: lastIp || "0.0.0.0",
+      createdBy: "",
       createdAt: typeof row.createdAt === "string" && row.createdAt ? row.createdAt : nowIso(),
       updatedAt: nowIso(),
     };
@@ -51,16 +52,18 @@ export async function POST(request: NextRequest) {
 
   const result = await mutateDb((db) => {
     const before = db.hotspotUsers.length;
+    const mine = db.hotspotUsers.filter((u) => u.createdBy === gate.auth.sub);
+    const others = db.hotspotUsers.filter((u) => u.createdBy !== gate.auth.sub);
     const keyed = new Map<string, HotspotUser>();
     if (mode === "merge") {
-      for (const user of db.hotspotUsers) {
+      for (const user of mine) {
         keyed.set(`${user.phone}|${user.macAddress}`, user);
       }
     }
     for (const user of incoming) {
-      keyed.set(`${user.phone}|${user.macAddress}`, user);
+      keyed.set(`${user.phone}|${user.macAddress}`, { ...user, createdBy: gate.auth.sub });
     }
-    db.hotspotUsers = Array.from(keyed.values());
+    db.hotspotUsers = [...others, ...Array.from(keyed.values())];
     return {
       before,
       imported: incoming.length,

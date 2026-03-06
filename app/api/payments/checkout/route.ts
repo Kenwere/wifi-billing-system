@@ -3,7 +3,6 @@ import { processPaymentAndActivateSession } from "@/lib/billing";
 import { mutateDb, readDb } from "@/lib/db";
 import { startStkPush } from "@/lib/mpesa";
 import { initializePaystackTransaction } from "@/lib/paystack";
-import { subscriptionState } from "@/lib/subscription";
 import { PaymentMethod } from "@/lib/types";
 import { normalizeMac, nowIso, randomId } from "@/lib/utils";
 import crypto from "crypto";
@@ -44,18 +43,24 @@ export async function POST(request: NextRequest) {
     : buildPseudoMac(`${phone}|${routerId}|${ipAddress}|${request.headers.get("user-agent") ?? ""}`);
 
   const db = await readDb();
-  const state = subscriptionState(db);
-  if (state.locked) {
-    return NextResponse.json(
-      { error: "Service locked: unpaid subscription", reason: state.reason },
-      { status: 402 },
-    );
-  }
-
   const pkg = db.packages.find((p) => p.id === packageId && p.active);
   if (!pkg) return NextResponse.json({ error: "Package not found" }, { status: 404 });
   const router = db.routers.find((r) => r.id === routerId && r.active);
   if (!router) return NextResponse.json({ error: "Router not found" }, { status: 404 });
+  const owner = db.adminUsers.find((u) => u.id === router.createdBy);
+  const ownerLocked =
+    !owner ||
+    owner.paymentStatus === "overdue" ||
+    new Date(owner.paymentExpiresAt).getTime() <= Date.now();
+  if (ownerLocked) {
+    return NextResponse.json(
+      { error: "Service locked: unpaid subscription", reason: "Subscription payment overdue" },
+      { status: 402 },
+    );
+  }
+  if (pkg.createdBy !== router.createdBy) {
+    return NextResponse.json({ error: "Package does not belong to this MikroTik" }, { status: 400 });
+  }
 
   const enabledMethods = router.paymentDestination?.enabledMethods ?? [];
   const method = (requestedMethod && enabledMethods.includes(requestedMethod)
@@ -101,6 +106,7 @@ export async function POST(request: NextRequest) {
     await mutateDb((current) => {
       current.paymentIntents.push({
         id: intentId,
+        createdBy: router.createdBy,
         phone,
         macAddress,
         ipAddress,
@@ -154,6 +160,7 @@ export async function POST(request: NextRequest) {
     await mutateDb((current) => {
       current.paymentIntents.push({
         id: intentId,
+        createdBy: router.createdBy,
         phone,
         macAddress,
         ipAddress,

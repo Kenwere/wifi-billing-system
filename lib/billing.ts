@@ -58,10 +58,13 @@ export async function processPaymentAndActivateSession(input: {
     if (!pkg) throw new Error("Package not found");
     const router = db.routers.find((r) => r.id === input.routerId && r.active);
     if (!router) throw new Error("Router not found");
+    const createdBy = router.createdBy;
 
     const phone = sanitizePhone(input.phone);
     const mac = normalizeMac(input.macAddress);
-    const existing = db.hotspotUsers.find((u) => u.phone === phone && u.macAddress === mac);
+    const existing = db.hotspotUsers.find(
+      (u) => u.phone === phone && u.macAddress === mac && u.createdBy === createdBy,
+    );
     const user =
       existing ??
       (() => {
@@ -70,6 +73,7 @@ export async function processPaymentAndActivateSession(input: {
           phone,
           macAddress: mac,
           lastIp: input.ipAddress,
+          createdBy,
           createdAt: nowIso(),
           updatedAt: nowIso(),
         };
@@ -82,6 +86,7 @@ export async function processPaymentAndActivateSession(input: {
     const session: Session = {
       id: randomId("sess"),
       userId: user.id,
+      createdBy,
       routerId: router.id,
       packageId: pkg.id,
       phone,
@@ -99,6 +104,7 @@ export async function processPaymentAndActivateSession(input: {
     const dateParts = toDateParts(nowIso());
     db.payments.push({
       id: randomId("pay"),
+      createdBy,
       userPhone: phone,
       packageId: pkg.id,
       packageName: pkg.name,
@@ -149,10 +155,17 @@ export async function expireAndDisconnectSessions() {
   });
 }
 
-export async function disconnectSession(sessionId: string, reason = "manual") {
+export async function disconnectSession(
+  sessionId: string,
+  reason = "manual",
+  actor?: { role: string; sub: string },
+) {
   return mutateDb(async (db) => {
     const session = db.sessions.find((s) => s.id === sessionId);
     if (!session) throw new Error("Session not found");
+    if (actor && actor.role !== "super_admin" && session.createdBy !== actor.sub) {
+      throw new Error("Forbidden");
+    }
     if (session.status !== "active") return session;
     session.status = "disconnected";
     session.manualTerminationReason = reason;

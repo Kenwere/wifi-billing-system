@@ -4,6 +4,8 @@ export interface AdminUser {
   id: string;
   fullName: string;
   email: string;
+  businessName: string;
+  businessLogoUrl?: string;
   passwordHash: string;
   role: Role;
   isActive: boolean;
@@ -13,6 +15,8 @@ export interface AdminUser {
   paymentStatus: "trial" | "paid" | "overdue";
   paymentExpiresAt: string;
   trialEndsAt: string;
+  billingAnchorDay?: number;
+  pendingPaystackReference?: string;
   createdAt: string;
 }
 
@@ -32,6 +36,7 @@ export interface RouterConfig {
     enableSessionLogging: boolean;
   };
   active: boolean;
+  createdBy: string;
   createdAt: string;
 }
 
@@ -45,6 +50,7 @@ export interface WifiPackage {
   dataLimitMb?: number;
   validityHours: number;
   active: boolean;
+  createdBy: string;
   createdAt: string;
   updatedAt: string;
 }
@@ -71,6 +77,7 @@ export interface HotspotUser {
   phone: string;
   macAddress: string;
   lastIp: string;
+  createdBy: string;
   createdAt: string;
   updatedAt: string;
 }
@@ -78,6 +85,7 @@ export interface HotspotUser {
 export interface Session {
   id: string;
   userId: string;
+  createdBy: string;
   routerId: string;
   packageId: string;
   phone: string;
@@ -95,6 +103,7 @@ export interface Session {
 
 export interface PaymentLog {
   id: string;
+  createdBy: string;
   userPhone: string;
   packageId: string;
   packageName: string;
@@ -111,6 +120,7 @@ export interface PaymentLog {
 
 export interface PaymentIntent {
   id: string;
+  createdBy: string;
   phone: string;
   macAddress: string;
   ipAddress: string;
@@ -136,6 +146,7 @@ export interface Voucher {
   sentToPhone?: string;
   usedByPhone?: string;
   usedAt?: string;
+  createdBy: string;
   createdAt: string;
 }
 

@@ -23,13 +23,15 @@ export async function POST(request: NextRequest) {
     }
     const trialEnds = new Date();
     trialEnds.setDate(trialEnds.getDate() + 14);
-    const role = db.adminUsers.length === 0 ? "super_admin" : "admin";
+    const role = "admin";
     const user = {
       id: randomId("admin"),
       fullName,
       email,
+      businessName,
+      businessLogoUrl: "",
       passwordHash: hashPassword(password),
-      role: role as "super_admin" | "admin",
+      role: role as "admin",
       isActive: true,
       emailVerified: true,
       emailVerificationCodeHash: undefined,
@@ -40,9 +42,6 @@ export async function POST(request: NextRequest) {
       createdAt: nowIso(),
     };
     db.adminUsers.push(user);
-    if (!db.tenant.businessName) {
-      db.tenant.businessName = businessName;
-    }
     return user;
   }).catch((error: Error) => error);
 
@@ -58,6 +57,8 @@ export async function POST(request: NextRequest) {
       id: result.id,
       fullName: result.fullName,
       email: result.email,
+      businessName: result.businessName,
+      businessLogoUrl: result.businessLogoUrl ?? "",
       role: result.role,
       paymentStatus: result.paymentStatus,
       paymentExpiresAt: result.paymentExpiresAt,

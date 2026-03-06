@@ -8,5 +8,10 @@ export async function GET(request: NextRequest) {
   if (!gate.ok) return gate.response;
   await expireAndDisconnectSessions();
   const db = await readDb();
-  return NextResponse.json({ sessions: db.sessions });
+  if (gate.auth.role === "super_admin") {
+    return NextResponse.json({ sessions: db.sessions });
+  }
+  return NextResponse.json({
+    sessions: db.sessions.filter((s) => s.createdBy === gate.auth.sub),
+  });
 }

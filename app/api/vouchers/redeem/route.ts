@@ -50,6 +50,9 @@ export async function POST(request: NextRequest) {
 
     const router = db.routers.find((r) => r.id === routerId);
     if (!router) throw new Error("Router not found");
+    if (item.createdBy !== router.createdBy) {
+      throw new Error("Voucher does not belong to this MikroTik");
+    }
 
     const activeSessions = db.sessions.filter(
       (s) => s.routerId === routerId && s.phone === phone && s.status === "active",
@@ -69,7 +72,7 @@ export async function POST(request: NextRequest) {
     }
 
     const knownUser = db.hotspotUsers
-      .filter((u) => u.phone === phone)
+      .filter((u) => u.phone === phone && u.createdBy === router.createdBy)
       .sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime())[0];
     const lastSession = db.sessions
       .filter((s) => s.routerId === routerId && s.phone === phone)
