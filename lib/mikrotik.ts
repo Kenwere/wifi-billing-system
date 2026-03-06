@@ -120,7 +120,7 @@ export function buildMikrotikScript(router: RouterConfig, appBaseUrl: string): s
     "",
     "# 5) Hotspot basic config",
     "/ip hotspot profile",
-    `add name=hsprof-wifi-billing hotspot-address=10.10.10.1 html-directory=hotspot login-by=http-chap,http-pap,http-cookie`,
+    `add name=hsprof-wifi-billing hotspot-address=10.10.10.1 html-directory=hotspot login-by=http-chap,http-pap,cookie`,
     `/ip hotspot add name=hotspot1 interface=${lanBridge} address-pool=hs-pool profile=hsprof-wifi-billing disabled=no`,
     "/ip hotspot user profile",
     `add name=wifi-billing-default shared-users=${router.setupOptions.disableHotspotSharing ? 1 : 3} ` +

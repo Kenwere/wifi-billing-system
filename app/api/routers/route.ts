@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { mutateDb, readDb } from "@/lib/db";
 import { requireRole } from "@/lib/guards";
+import { disconnectInternetAccess } from "@/lib/mikrotik";
 import { nowIso, randomId } from "@/lib/utils";
 
 function autoAssignRouterHost(existingHosts: string[]): string {
@@ -82,4 +83,49 @@ export async function PATCH(request: NextRequest) {
     return NextResponse.json({ error: updated.message }, { status: 400 });
   }
   return NextResponse.json({ router: updated });
+}
+
+export async function DELETE(request: NextRequest) {
+  const gate = await requireRole(request, "admin");
+  if (!gate.ok) return gate.response;
+
+  const id = request.nextUrl.searchParams.get("id");
+  if (!id) return NextResponse.json({ error: "id is required" }, { status: 400 });
+
+  const result = await mutateDb(async (db) => {
+    const router = db.routers.find((r) => r.id === id);
+    if (!router) throw new Error("MikroTik not found");
+
+    const activeSessions = db.sessions.filter((s) => s.routerId === id && s.status === "active");
+    for (const session of activeSessions) {
+      session.status = "disconnected";
+      session.manualTerminationReason = "mikrotik_deleted";
+      session.logoutTime = nowIso();
+      session.durationUsedMinutes = Math.max(
+        0,
+        Math.floor(
+          (new Date(session.logoutTime).getTime() - new Date(session.loginTime).getTime()) /
+            (1000 * 60),
+        ),
+      );
+      await disconnectInternetAccess(router, session.macAddress);
+    }
+
+    const beforeRouters = db.routers.length;
+    const beforePackages = db.packages.length;
+    db.routers = db.routers.filter((r) => r.id !== id);
+    db.packages = db.packages.filter((p) => p.routerId !== id);
+
+    return {
+      removedRouter: beforeRouters - db.routers.length,
+      removedPackages: beforePackages - db.packages.length,
+      disconnectedSessions: activeSessions.length,
+    };
+  }).catch((error: Error) => error);
+
+  if (result instanceof Error) {
+    return NextResponse.json({ error: result.message }, { status: 400 });
+  }
+
+  return NextResponse.json({ ok: true, ...result });
 }
