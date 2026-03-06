@@ -489,7 +489,6 @@ export function buildMikrotikScript(router: RouterConfig, appBaseUrl: string): s
     `add list=wifi-billing-active comment="WiFi Billing - Active users (full internet)"`,
     `add list=wifi-billing-restricted comment="WiFi Billing - Restricted users (captive only)"`,
     `add list=captive-allowed address=${portalHost} comment="WiFi Billing captive portal"`,
-    `add list=captive-allowed address=*.${portalHost} comment="WiFi Billing captive portal API"`,
     ...(usesPaystack
       ? [
           ...paystackHosts.map((host) => `add list=captive-allowed address=${host} comment="Payment processor"`),
