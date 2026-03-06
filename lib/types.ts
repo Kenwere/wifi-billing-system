@@ -7,6 +7,9 @@ export interface AdminUser {
   passwordHash: string;
   role: Role;
   isActive: boolean;
+  emailVerified: boolean;
+  emailVerificationCodeHash?: string;
+  emailVerificationExpiresAt?: string;
   paymentStatus: "trial" | "paid" | "overdue";
   paymentExpiresAt: string;
   trialEndsAt: string;

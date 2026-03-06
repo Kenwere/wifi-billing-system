@@ -10,7 +10,7 @@ function normalizeFileName(name: string): string {
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/^-+|-+$/g, "")
-    .slice(0, 50);
+    .slice(0, 12);
 }
 
 export async function GET(request: NextRequest, context: Params) {
@@ -26,7 +26,8 @@ export async function GET(request: NextRequest, context: Params) {
 
   const appBaseUrl = process.env.APP_BASE_URL ?? "https://wifi-billing-system-kappa.vercel.app";
   const script = buildMikrotikScript(mikrotik, appBaseUrl);
-  const fileName = `${normalizeFileName(mikrotik.name) || "mikrotik"}-${mikrotik.id}.rsc`;
+  const shortId = mikrotik.id.replace(/[^a-zA-Z0-9]/g, "").slice(-6).toLowerCase();
+  const fileName = `${normalizeFileName(mikrotik.name) || "mk"}-${shortId || "script"}.rsc`;
 
   return new NextResponse(script, {
     status: 200,

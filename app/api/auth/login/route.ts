@@ -9,8 +9,8 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "Email and password are required" }, { status: 400 });
   }
   const result = await loginAdmin(email, password);
-  if (!result) {
-    return NextResponse.json({ error: "Invalid credentials" }, { status: 401 });
+  if (!result.ok) {
+    return NextResponse.json({ error: result.error }, { status: 401 });
   }
   await setAuthCookie(result.token);
   return NextResponse.json({

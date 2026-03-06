@@ -10,6 +10,7 @@ type AuthUser = {
   email: string;
   role: string;
   isActive?: boolean;
+  emailVerified?: boolean;
   paymentStatus?: string;
   paymentExpiresAt?: string;
 };
@@ -108,8 +109,12 @@ export default function AdminPage() {
   const [loginEmail, setLoginEmail] = useState("");
   const [loginPassword, setLoginPassword] = useState("");
   const [isRegisterMode, setIsRegisterMode] = useState(false);
+  const [authStage, setAuthStage] = useState<"credentials" | "verify">("credentials");
   const [registerName, setRegisterName] = useState("");
   const [registerBusiness, setRegisterBusiness] = useState("");
+  const [verificationEmail, setVerificationEmail] = useState("");
+  const [verificationCode, setVerificationCode] = useState("");
+  const [authNotice, setAuthNotice] = useState("");
   const [routerForm, setRouterForm] = useState({
     name: "",
     location: "",
@@ -176,12 +181,14 @@ export default function AdminPage() {
     })();
   }, []);
 
-  async function run(action: () => Promise<void>) {
+  async function run(action: () => Promise<void>, options?: { reload?: boolean }) {
     setBusy(true);
     setError("");
     try {
       await action();
-      await loadAll();
+      if (options?.reload !== false) {
+        await loadAll();
+      }
     } catch (err) {
       setError((err as Error).message);
     } finally {
@@ -211,61 +218,135 @@ export default function AdminPage() {
         <Navbar />
         <main className="shell" style={{ paddingTop: 40 }}>
           <section className="panel" style={{ maxWidth: 420, margin: "8vh auto", padding: 20 }}>
-            <h2>{isRegisterMode ? "Register Admin" : "Admin Login"}</h2>
-            <form
-              className="grid"
-              onSubmit={(e) => {
-                e.preventDefault();
-                void run(async () => {
-                  const endpoint = isRegisterMode ? "/api/auth/register" : "/api/auth/login";
-                  const payload = isRegisterMode
-                    ? {
-                        fullName: registerName,
-                        businessName: registerBusiness,
-                        email: loginEmail,
-                        password: loginPassword,
-                      }
-                    : { email: loginEmail, password: loginPassword };
-                  const auth = await jfetch(endpoint, {
-                    method: "POST",
-                    body: JSON.stringify(payload),
-                  });
-                  setMe(auth.user as AuthUser);
-                });
-              }}
-            >
-              {isRegisterMode && (
-                <>
+            <h2>{authStage === "verify" ? "Verify OTP" : isRegisterMode ? "Register Admin" : "Admin Login"}</h2>
+            {authStage === "verify" ? (
+              <form
+                className="grid"
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  void run(
+                    async () => {
+                      const auth = await jfetch("/api/auth/verify", {
+                        method: "POST",
+                        body: JSON.stringify({ email: verificationEmail, code: verificationCode }),
+                      });
+                      setMe(auth.user as AuthUser);
+                    },
+                    { reload: false },
+                  );
+                }}
+              >
+                <p style={{ color: "var(--muted)", margin: 0 }}>
+                  Enter the 6-digit OTP sent to <b>{verificationEmail}</b>.
+                </p>
+                <input
+                  value={verificationCode}
+                  onChange={(e) => setVerificationCode(e.target.value)}
+                  placeholder="Enter OTP"
+                />
+                <button className="btn btn-primary" disabled={busy}>
+                  {busy ? "Please wait..." : "Verify and Continue"}
+                </button>
+                <button
+                  type="button"
+                  className="btn btn-secondary"
+                  disabled={busy}
+                  onClick={() =>
+                    void run(
+                      async () => {
+                        const res = await jfetch("/api/auth/resend-code", {
+                          method: "POST",
+                          body: JSON.stringify({ email: verificationEmail }),
+                        });
+                        setAuthNotice(String(res.message ?? "OTP sent."));
+                      },
+                      { reload: false },
+                    )
+                  }
+                >
+                  Resend OTP
+                </button>
+                <button
+                  type="button"
+                  className="btn btn-secondary"
+                  onClick={() => {
+                    setAuthStage("credentials");
+                    setVerificationCode("");
+                    setAuthNotice("");
+                  }}
+                >
+                  Back to Login
+                </button>
+              </form>
+            ) : (
+              <>
+                <form
+                  className="grid"
+                  onSubmit={(e) => {
+                    e.preventDefault();
+                    void run(
+                      async () => {
+                        const endpoint = isRegisterMode ? "/api/auth/register" : "/api/auth/login";
+                        const payload = isRegisterMode
+                          ? {
+                              fullName: registerName,
+                              businessName: registerBusiness,
+                              email: loginEmail,
+                              password: loginPassword,
+                            }
+                          : { email: loginEmail, password: loginPassword };
+                        const auth = await jfetch(endpoint, {
+                          method: "POST",
+                          body: JSON.stringify(payload),
+                        });
+                        if (isRegisterMode && auth.requiresVerification) {
+                          setVerificationEmail(String(auth.email ?? loginEmail));
+                          setVerificationCode("");
+                          setAuthNotice(String(auth.message ?? "OTP sent."));
+                          setAuthStage("verify");
+                          return;
+                        }
+                        setMe(auth.user as AuthUser);
+                      },
+                      { reload: !isRegisterMode },
+                    );
+                  }}
+                >
+                  {isRegisterMode && (
+                    <>
+                      <input
+                        value={registerName}
+                        onChange={(e) => setRegisterName(e.target.value)}
+                        placeholder="Full name"
+                      />
+                      <input
+                        value={registerBusiness}
+                        onChange={(e) => setRegisterBusiness(e.target.value)}
+                        placeholder="Business name"
+                      />
+                    </>
+                  )}
+                  <input value={loginEmail} onChange={(e) => setLoginEmail(e.target.value)} placeholder="Email" />
                   <input
-                    value={registerName}
-                    onChange={(e) => setRegisterName(e.target.value)}
-                    placeholder="Full name"
+                    value={loginPassword}
+                    type="password"
+                    onChange={(e) => setLoginPassword(e.target.value)}
+                    placeholder="Password"
                   />
-                  <input
-                    value={registerBusiness}
-                    onChange={(e) => setRegisterBusiness(e.target.value)}
-                    placeholder="Business name"
-                  />
-                </>
-              )}
-              <input value={loginEmail} onChange={(e) => setLoginEmail(e.target.value)} placeholder="Email" />
-              <input
-                value={loginPassword}
-                type="password"
-                onChange={(e) => setLoginPassword(e.target.value)}
-                placeholder="Password"
-              />
-              <button className="btn btn-primary" disabled={busy}>
-                {busy ? "Please wait..." : isRegisterMode ? "Create Admin Account" : "Sign In"}
-              </button>
-            </form>
-            <button
-              className="btn btn-secondary"
-              style={{ marginTop: 10 }}
-              onClick={() => setIsRegisterMode((prev) => !prev)}
-            >
-              {isRegisterMode ? "Have an account? Login" : "New admin? Register"}
-            </button>
+                  <button className="btn btn-primary" disabled={busy}>
+                    {busy ? "Please wait..." : isRegisterMode ? "Create Admin Account" : "Sign In"}
+                  </button>
+                </form>
+                <button
+                  className="btn btn-secondary"
+                  style={{ marginTop: 10 }}
+                  onClick={() => setIsRegisterMode((prev) => !prev)}
+                >
+                  {isRegisterMode ? "Have an account? Login" : "New admin? Register"}
+                </button>
+              </>
+            )}
+            {authNotice && <p style={{ color: "var(--muted)" }}>{authNotice}</p>}
             {error && <p style={{ color: "var(--danger)" }}>{error}</p>}
           </section>
         </main>

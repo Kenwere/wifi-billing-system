@@ -125,6 +125,9 @@ function normalizeLegacyShape(db: Database): Database {
   const defaultTrial = db.tenant.subscription.trialEndsAt || nowIso();
   db.adminUsers = db.adminUsers.map((user) => ({
     ...user,
+    emailVerified: user.emailVerified ?? true,
+    emailVerificationCodeHash: user.emailVerificationCodeHash ?? undefined,
+    emailVerificationExpiresAt: user.emailVerificationExpiresAt ?? undefined,
     paymentStatus: user.paymentStatus ?? "trial",
     paymentExpiresAt: user.paymentExpiresAt ?? defaultTrial,
     trialEndsAt: user.trialEndsAt ?? defaultTrial,

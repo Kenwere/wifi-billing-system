@@ -53,10 +53,15 @@ export function verifyToken(token: string): TokenPayload | null {
 export async function loginAdmin(email: string, password: string) {
   const db = await readDb();
   const user = db.adminUsers.find((u) => u.email.toLowerCase() === email.toLowerCase());
-  if (!user || !user.isActive) return null;
-  if (!safeCompare(user.passwordHash, hashPassword(password))) return null;
+  if (!user || !user.isActive) return { ok: false as const, error: "Invalid credentials" };
+  if (!safeCompare(user.passwordHash, hashPassword(password))) {
+    return { ok: false as const, error: "Invalid credentials" };
+  }
+  if (!user.emailVerified) {
+    return { ok: false as const, error: "Email not verified. Enter the verification code sent to your email." };
+  }
   const token = createToken({ sub: user.id, email: user.email, role: user.role });
-  return { token, user };
+  return { ok: true as const, token, user };
 }
 
 export async function setAuthCookie(token: string) {

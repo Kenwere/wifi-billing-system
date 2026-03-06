@@ -15,6 +15,7 @@ export async function GET(request: NextRequest) {
       email: user.email,
       role: user.role,
       isActive: user.isActive,
+      emailVerified: user.emailVerified,
       paymentStatus: user.paymentStatus,
       paymentExpiresAt: user.paymentExpiresAt,
       trialEndsAt: user.trialEndsAt,
