@@ -6,7 +6,7 @@ Next.js full-stack SaaS platform for hotspot billing, MikroTik router operations
 
 - Backend/API: Next.js Route Handlers (Node runtime), TypeScript
 - Frontend: Next.js App Router + React
-- Storage: Firebase Firestore (`app_state/singleton`) with JSON file fallback (`data/db.json`) for local development
+- Storage: Supabase (`app_state` table, `singleton` row) with JSON file fallback (`data/db.json`) for local development
 - Auth: JWT (HTTP-only cookie + bearer support), RBAC
 - Router integration: MikroTik service abstraction (`lib/mikrotik.ts`)
 
@@ -57,9 +57,11 @@ Create `.env.local`:
 ```env
 JWT_SECRET=change_this_secret
 MIKROTIK_LIVE_MODE=false
-FIREBASE_PROJECT_ID=your-project-id
-FIREBASE_CLIENT_EMAIL=firebase-adminsdk-xxxxx@your-project-id.iam.gserviceaccount.com
-FIREBASE_PRIVATE_KEY="-----BEGIN PRIVATE KEY-----\nYOUR_KEY\n-----END PRIVATE KEY-----\n"
+SUPABASE_URL=https://YOUR_PROJECT_REF.supabase.co
+SUPABASE_SERVICE_ROLE_KEY=YOUR_SERVICE_ROLE_KEY
+SUPABASE_STATE_TABLE=app_state
+SUPABASE_STATE_ROW_ID=singleton
+SUPABASE_ALLOW_LOCAL_FALLBACK=false
 MPESA_ENV=sandbox
 MPESA_CONSUMER_KEY=YOUR_CONSUMER_KEY
 MPESA_CONSUMER_SECRET=YOUR_CONSUMER_SECRET
@@ -71,17 +73,17 @@ MPESA_SIMULATE=false
 
 - `MIKROTIK_LIVE_MODE=false` keeps router actions in safe simulation mode.
 - Set `MIKROTIK_LIVE_MODE=true` and implement real RouterOS API calls in `lib/mikrotik.ts`.
-- If Firebase env vars are set, the app uses Firestore.
-- If Firebase env vars are missing, the app automatically falls back to `data/db.json`.
+- If Supabase env vars are set, the app uses Supabase.
+- If Supabase env vars are missing, local development can fall back to `data/db.json`.
 - Set `MPESA_SIMULATE=true` for local testing without hitting Safaricom APIs.
 
-## Firebase Setup
+## Supabase Setup
 
-1. Create a Firebase project.
-2. Enable Firestore Database.
-3. Create a service account key (Firebase Console -> Project Settings -> Service accounts).
-4. Put `FIREBASE_PROJECT_ID`, `FIREBASE_CLIENT_EMAIL`, `FIREBASE_PRIVATE_KEY` in `.env.local`.
-5. The app auto-creates/uses Firestore document: `app_state/singleton`.
+1. Create a Supabase project.
+2. In SQL Editor, create the state table:
+   `create table if not exists public.app_state (id text primary key, payload jsonb not null, updated_at timestamptz not null default now());`
+3. Copy `SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY` into `.env.local`.
+4. Optional: set `SUPABASE_STATE_TABLE` and `SUPABASE_STATE_ROW_ID` (defaults are `app_state` and `singleton`).
 
 ## API Surface (Core)
 

@@ -33,7 +33,7 @@ export default function DocsPage() {
             <li>`POST /api/payments/checkout`</li>
             <li>`POST /api/subscription/pay`</li>
             <li>`GET /api/subscription/verify`</li>
-            <li>`GET /api/firebase/status`</li>
+            <li>`GET /api/supabase/status`</li>
           </ul>
         </section>
 
