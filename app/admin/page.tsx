@@ -229,6 +229,12 @@ export default function AdminPage() {
     return () => clearInterval(timer);
   }, []);
 
+  useEffect(() => {
+    if (!packageForm.routerId && routers.length > 0) {
+      setPackageForm((prev) => ({ ...prev, routerId: routers[0]?.id ?? "" }));
+    }
+  }, [routers, packageForm.routerId]);
+
   async function run(action: () => Promise<void>, options?: { reload?: boolean }) {
     setBusy(true);
     setError("");
@@ -406,7 +412,7 @@ export default function AdminPage() {
   return (
     <>
       <Navbar
-        title="WiFi Admin"
+        title="MoonConnect"
         links={[
           { label: "Home", href: "/" },
           { label: "Documentation", href: "/docs" },
@@ -789,6 +795,9 @@ export default function AdminPage() {
                         if (!packageForm.durationMinutes || Number(packageForm.durationMinutes) <= 0) {
                           throw new Error("Duration must be greater than 0");
                         }
+                        if (!packageForm.routerId) {
+                          throw new Error("Select a MikroTik first");
+                        }
                         const created = await jfetch("/api/packages", {
                           method: "POST",
                           body: JSON.stringify({
@@ -815,7 +824,7 @@ export default function AdminPage() {
                           speedMbps: "",
                           unlimitedData: true,
                           dataLimitMb: "",
-                          routerId: "",
+                          routerId: routers[0]?.id ?? "",
                         });
                         setPackageNotice("Package created successfully.");
                       } catch (err) {
@@ -853,11 +862,11 @@ export default function AdminPage() {
                       placeholder="Data limit (MB)"
                     />
                   )}
-                  <select value={packageForm.routerId} onChange={(e) => setPackageForm({ ...packageForm, routerId: e.target.value })}>
-                    <option value="">Global/All Routers</option>
+                  <select value={packageForm.routerId} onChange={(e) => setPackageForm({ ...packageForm, routerId: e.target.value })} required>
+                    <option value="">Select MikroTik</option>
                     {routers.map((r) => <option key={r.id} value={r.id}>{r.name}</option>)}
                   </select>
-                  <button className="btn btn-primary">Add</button>
+                  <button className="btn btn-primary" disabled={busy || routers.length === 0}>Add</button>
                 </form>
                 {packageNotice && (
                   <p style={{ color: packageNotice.startsWith("Failed") ? "var(--danger)" : "var(--accent)", marginTop: 8 }}>
