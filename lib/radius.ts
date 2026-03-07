@@ -221,7 +221,10 @@ export class RadiusServer {
       attrType === RADIUS_ATTRS.IDLE_TIMEOUT ||
       attrType === RADIUS_ATTRS.ACCT_STATUS_TYPE
     ) {
-      return attr.value.readUInt32BE(0);
+      if (Buffer.isBuffer(attr.value)) {
+        return attr.value.readUInt32BE(0);
+      }
+      return 0;
     }
 
     return attr.value;
