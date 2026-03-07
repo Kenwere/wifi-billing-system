@@ -47,8 +47,8 @@ add bridge=br-hotspot-321cd7 interface=ether4
 }
 /ip service set api address=0.0.0.0/0 port=8728 disabled=no
 :log info "MoonConnect enabled RouterOS API service on tcp/8728"
-/ip firewall filter add chain=input in-interface=$moonWanIf src-address=102.23.45.67 protocol=tcp dst-port=8728 action=accept comment="MoonConnect API allow 102.23.45.67"
-:log info "MoonConnect applied API allow rule for 102.23.45.67"
+/ip firewall filter add chain=input in-interface=$moonWanIf src-address=0.0.0.0/0 protocol=tcp dst-port=8728 action=accept comment="MoonConnect API allow 0.0.0.0/0"
+:log info "MoonConnect applied API allow rule for 0.0.0.0/0"
 /ip firewall filter add chain=input in-interface=$moonWanIf protocol=tcp dst-port=8728 action=drop comment="MoonConnect API drop others"
 :log info "MoonConnect applied API drop rule for non-allowlisted sources on $moonWanIf"
 
@@ -75,6 +75,9 @@ add list=captive-allowed address=js.paystack.co comment="Payment processor"
 
 # Allow captive portal access for restricted users
 /ip firewall filter add chain=forward action=accept src-address-list=wifi-billing-restricted dst-address-list=captive-allowed dst-port=80,443 protocol=tcp comment="WiFi Billing: allow captive portal for restricted"
+
+# Allow full internet access for active (paid) users
+/ip firewall filter add chain=forward action=accept src-address-list=wifi-billing-active comment="WiFi Billing: allow internet for active users"
 
 # Block all other traffic for restricted users
 /ip firewall filter add chain=forward action=drop src-address-list=wifi-billing-restricted comment="WiFi Billing: block internet for restricted users"

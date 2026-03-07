@@ -289,6 +289,35 @@ export async function grantInternetAccess(
     }
 
     await withRouterClient(router, async (client) => {
+      // Method 1: Use IP binding (more reliable)
+      try {
+        // Remove any existing binding for this MAC
+        const existingBindings = await findIds(client, "/ip/hotspot/ip-binding", [
+          `?mac-address=${session.macAddress}`,
+        ]);
+        for (const id of existingBindings) {
+          await client.command(["/ip/hotspot/ip-binding/remove", `=.id=${id}`]);
+        }
+
+        // Add bypassed binding for paid user
+        const addBinding = await client.command([
+          "/ip/hotspot/ip-binding/add",
+          `=mac-address=${session.macAddress}`,
+          `=type=bypassed`,
+          `=comment=session:${session.id}`,
+        ]);
+        const bindingTrap = addBinding.find((r) => r.type === "!trap");
+        if (bindingTrap) {
+          throw new Error(bindingTrap.attrs.message || "Failed to add IP binding");
+        }
+
+        console.log(`[MikroTik] Granted internet access via IP binding to ${session.macAddress} on ${router.name}`);
+        return; // Success with IP binding method
+      } catch (bindingError) {
+        console.warn(`[MikroTik] IP binding failed, falling back to firewall method: ${bindingError}`);
+      }
+
+      // Method 2: Fallback to firewall address-list method
       // Remove from restricted list if present
       const restrictedIds = await findIds(client, "/ip/firewall/address-list", [
         "?list=wifi-billing-restricted",
@@ -318,7 +347,7 @@ export async function grantInternetAccess(
         throw new Error(addTrap.attrs.message || "Failed to add active address list entry");
       }
 
-      console.log(`[MikroTik] Granted internet access to ${ip} on ${router.name}`);
+      console.log(`[MikroTik] Granted internet access via firewall to ${ip} on ${router.name}`);
     });
   }
   return {
@@ -333,6 +362,20 @@ export async function disconnectInternetAccess(
 ): Promise<{ ok: boolean; message: string }> {
   if (isLiveMode()) {
     await withRouterClient(router, async (client) => {
+      // Method 1: Remove IP binding (preferred method)
+      try {
+        const bindingIds = await findIds(client, "/ip/hotspot/ip-binding", [
+          `?mac-address=${macAddress}`,
+        ]);
+        for (const id of bindingIds) {
+          await client.command(["/ip/hotspot/ip-binding/remove", `=.id=${id}`]);
+        }
+        console.log(`[MikroTik] Removed IP binding for ${macAddress} on ${router.name}`);
+      } catch (bindingError) {
+        console.warn(`[MikroTik] IP binding removal failed: ${bindingError}`);
+      }
+
+      // Method 2: Fallback to firewall address-list method
       // Find sessions for this MAC address
       const db = await import("@/lib/db").then(m => m.readDb());
       const sessions = db.sessions.filter(s =>
@@ -485,34 +528,26 @@ export function buildMikrotikScript(router: RouterConfig, appBaseUrl: string): s
       `rate-limit=${router.setupOptions.enableBandwidthControl ? "5M/5M" : "0/0"}`,
     "",
     "# 5b) Firewall-based access control (REQUIRED for API-based network unlock)",
+    "# Allow established and related connections (prevents connection breaking)",
+    "/ip firewall filter add chain=forward action=accept connection-state=established,related comment=\"WiFi Billing: allow established connections\"",
+    "",
+    "# Create address lists for user management (fallback method)",
     "/ip firewall address-list",
     `add list=wifi-billing-active comment="WiFi Billing - Active users (full internet)"`,
     `add list=wifi-billing-restricted comment="WiFi Billing - Restricted users (captive only)"`,
-    `add list=captive-allowed address=${portalHost} comment="WiFi Billing captive portal"`,
-    ...(usesPaystack
-      ? [
-          ...paystackHosts
-            .filter((host) => !host.includes("*")) // Remove wildcards - not allowed in address-list
-            .map((host) => `add list=captive-allowed address=${host} comment="Payment processor"`),
-        ]
-      : []),
+    "",
+    "# Allow full internet access for active (paid) users - MUST be first",
+    "/ip firewall filter add chain=forward action=accept src-address-list=wifi-billing-active comment=\"WiFi Billing: allow internet for active users\"",
     "",
     "# Allow DNS for restricted users",
     "/ip firewall filter add chain=forward action=accept src-address-list=wifi-billing-restricted protocol=udp dst-port=53 comment=\"WiFi Billing: allow DNS UDP for restricted\"",
     "/ip firewall filter add chain=forward action=accept src-address-list=wifi-billing-restricted protocol=tcp dst-port=53 comment=\"WiFi Billing: allow DNS TCP for restricted\"",
     "",
-    "# Allow captive portal access for restricted users",
-    "/ip firewall filter add chain=forward action=accept src-address-list=wifi-billing-restricted dst-address-list=captive-allowed dst-port=80,443 protocol=tcp comment=\"WiFi Billing: allow captive portal for restricted\"",
-    "",
-    "# Allow full internet access for active (paid) users",
-    "/ip firewall filter add chain=forward action=accept src-address-list=wifi-billing-active comment=\"WiFi Billing: allow internet for active users\"",
-    "",
     "# Block all other traffic for restricted users",
     "/ip firewall filter add chain=forward action=drop src-address-list=wifi-billing-restricted comment=\"WiFi Billing: block internet for restricted users\"",
     "",
-    "# Redirect HTTP/HTTPS to captive portal for restricted users",
-    "/ip firewall nat add chain=dstnat protocol=tcp dst-port=80 src-address-list=wifi-billing-restricted action=redirect to-ports=80 comment=\"WiFi Billing: redirect HTTP to captive\"",
-    "/ip firewall nat add chain=dstnat protocol=tcp dst-port=443 src-address-list=wifi-billing-restricted action=redirect to-ports=80 comment=\"WiFi Billing: redirect HTTPS to captive\"",
+    "# 5c) IP Binding setup (PRIMARY method for access control - more reliable than firewall)",
+    "# Note: IP bindings will be managed dynamically by the backend API",
     "",
     "# 6) Walled garden: allow payment + backend while user is unauthenticated",
     "/ip hotspot walled-garden",
@@ -524,6 +559,14 @@ export function buildMikrotikScript(router: RouterConfig, appBaseUrl: string): s
         ]
       : []),
     "",
+    "# 6b) Additional firewall rules for walled garden (fallback for when hotspot walled-garden fails)",
+    "# Allow access to portal and payment sites for all hotspot users",
+    "/ip firewall filter add chain=forward action=accept dst-host=${portalHost} protocol=tcp dst-port=80,443 comment=\"WiFi Billing: allow portal access\"",
+    ...(usesPaystack
+      ? paystackHosts
+          .filter((host) => !host.includes("*"))
+          .map((host) => `/ip firewall filter add chain=forward action=accept dst-host=${host} protocol=tcp dst-port=80,443 comment=\"WiFi Billing: allow payment processor\"`)
+      : []),
     "# 7) Redirect hotspot login page to app portal",
     `:local wifiBillingPortalUrl "${portalUrlWithDevice}"`,
     ":local wifiBillingLoginHtml (\"<!doctype html><html><head><meta charset=\\\"utf-8\\\"><meta http-equiv=\\\"refresh\\\" content=\\\"0; url=\" . $wifiBillingPortalUrl . \"\\\"><script>location.replace('\" . $wifiBillingPortalUrl . \"');</script></head><body>Redirecting...</body></html>\")",
