@@ -6,19 +6,19 @@ import { Navbar } from "@/components/Navbar";
 const capabilities = [
   {
     title: "Hotspot Billing Management",
-    desc: "Create and manage package plans by duration with automatic session expiry and reconnection capabilities.",
+    desc: "Design and deploy service packages with configurable access duration, automatic session management, and transparent billing.",
   },
   {
-    title: "MikroTik Router Integration",
-    desc: "Control multiple MikroTik devices with per-router package assignments, automated scripts, and payment configurations.",
+    title: "MikroTik Infrastructure",
+    desc: "Unified control across multiple router devices with enterprise-grade configuration, package assignment, and automation.",
   },
   {
-    title: "Payment Processing",
-    desc: "Integrate M-Pesa and Paystack payment gateways with transaction verification and voucher redemption systems.",
+    title: "Secure Payment Processing",
+    desc: "PCI-compliant payment handling through M-Pesa and Paystack with transaction verification and voucher systems.",
   },
   {
-    title: "Business Analytics Dashboard",
-    desc: "Monitor active sessions, payment records, user rankings, and revenue metrics with comprehensive reporting tools.",
+    title: "Business Intelligence",
+    desc: "Comprehensive dashboards tracking revenue, user metrics, active sessions, and performance analytics in real-time.",
   },
 ];
 
@@ -37,34 +37,34 @@ export default function Home() {
       <main className="shell" style={{ paddingTop: 24 }}>
         <section className="landing-hero">
           <div className="landing-hero-left">
-            <p className="landing-kicker">Professional WiFi Billing and Hotspot Management</p>
-            <h1>Streamline Your Hotspot Business Operations</h1>
+            <p className="landing-kicker">Enterprise WiFi Revenue Management Platform</p>
+            <h1>Monetize Your WiFi Network with Confidence</h1>
             <p className="landing-subtext">
-              Configure MikroTik hotspots, define service packages, process payments securely, and provide instant internet access to customers. Ideal for cafes, hotels, educational institutions, and public WiFi networks.
+              Deploy secure payment-gated WiFi access with integrated billing, automated revenue collection, and comprehensive business intelligence. Designed for hospitality, education, retail, and service providers managing high-traffic networks.
             </p>
             <div className="landing-cta-row">
               <Link href="/admin?mode=register" className="btn btn-primary">
-                Create Admin Account
+                Get Started
               </Link>
               <Link href="/admin" className="btn btn-secondary">
-                Sign In
+                Login
               </Link>
             </div>
           </div>
           <div className="landing-hero-right panel">
-            <h3>Key Features</h3>
+            <h3>Core Capabilities</h3>
             <div className="landing-highlight-list">
               <div>
-                <b>Automated Access Control</b>
-                <p>Customers complete payment and receive internet access instantly without manual intervention.</p>
+                <b>Frictionless Payment Integration</b>
+                <p>Customers gain instant access upon successful payment with zero manual intervention required.</p>
               </div>
               <div>
-                <b>Multi-Location Support</b>
-                <p>Manage multiple MikroTik installations with location-specific packages and payment configurations.</p>
+                <b>Multi-Location Management</b>
+                <p>Centralize control across multiple MikroTik devices with location-specific configurations and pricing.</p>
               </div>
               <div>
-                <b>Subscription Management</b>
-                <p>Monitor trial periods, recurring fees, and account status through the administrative dashboard.</p>
+                <b>Real-Time Analytics</b>
+                <p>Track active connections, revenue streams, and customer engagement through an intuitive dashboard.</p>
               </div>
             </div>
           </div>
@@ -72,16 +72,16 @@ export default function Home() {
 
         <section className="landing-stats">
           <article className="panel">
-            <h3>Flexible Package Plans</h3>
-            <p>Configure packages by time duration with bandwidth and data usage controls.</p>
+            <h3>Tiered Pricing Plans</h3>
+            <p>Create customizable packages with time-based access, bandwidth limits, and usage controls.</p>
           </article>
           <article className="panel">
-            <h3>Payment Integration</h3>
-            <p>Support for M-Pesa STK Push, Till Numbers, Paybill, and Paystack payment processing.</p>
+            <h3>Global Payment Processing</h3>
+            <p>Seamless integration with M-Pesa and Paystack for secure, verified transactions at scale.</p>
           </article>
           <article className="panel">
-            <h3>Session Management</h3>
-            <p>MAC address and IP tracking with automatic session expiry and reconnection options.</p>
+            <h3>Advanced Session Control</h3>
+            <p>Device tracking, automatic expiry enforcement, and seamless reconnection capabilities.</p>
           </article>
         </section>
 
@@ -95,27 +95,27 @@ export default function Home() {
         </section>
 
         <section className="panel landing-flow">
-          <h2>Customer Connection Process</h2>
+          <h2>Customer Access Flow</h2>
           <div className="landing-flow-grid">
             <article>
               <span>1</span>
-              <h4>Network Connection</h4>
-              <p>Customer connects to the WiFi network and the captive portal loads automatically.</p>
+              <h4>Network Discovery</h4>
+              <p>Customer connects to the WiFi network and is presented with a secure authentication portal.</p>
             </article>
             <article>
               <span>2</span>
-              <h4>Package Selection</h4>
-              <p>Customer reviews available packages and selects their preferred option.</p>
+              <h4>Plan Selection</h4>
+              <p>User reviews available service packages and duration options for their requirements.</p>
             </article>
             <article>
               <span>3</span>
-              <h4>Payment Processing</h4>
-              <p>Phone number is provided and payment is initiated through the selected gateway.</p>
+              <h4>Payment Authorization</h4>
+              <p>Customer initiates secure payment through their preferred gateway with verification.</p>
             </article>
             <article>
               <span>4</span>
-              <h4>Internet Access</h4>
-              <p>Upon successful payment verification, internet access is granted immediately.</p>
+              <h4>Immediate Access</h4>
+              <p>Upon confirmed payment, full internet access is activated instantly and automatically.</p>
             </article>
           </div>
         </section>
