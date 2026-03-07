@@ -5,20 +5,20 @@ import { Navbar } from "@/components/Navbar";
 
 const capabilities = [
   {
-    title: "Hotspot Billing",
-    desc: "Create package plans by minutes, hours, days, and weeks with automatic expiry and reconnection logic.",
+    title: "Hotspot Billing Management",
+    desc: "Create and manage package plans by duration with automatic session expiry and reconnection capabilities.",
   },
   {
-    title: "MikroTik Control",
-    desc: "Manage multiple MikroTik sites with per-device package, script, and payment destination settings.",
+    title: "MikroTik Router Integration",
+    desc: "Control multiple MikroTik devices with per-router package assignments, automated scripts, and payment configurations.",
   },
   {
-    title: "Payments and Vouchers",
-    desc: "Support M-Pesa and Paystack, verify transactions, and redeem vouchers directly from the captive portal.",
+    title: "Payment Processing",
+    desc: "Integrate M-Pesa and Paystack payment gateways with transaction verification and voucher redemption systems.",
   },
   {
-    title: "Business Analytics",
-    desc: "Track active sessions, payment logs, usage ranking, and earnings with clear operational reporting.",
+    title: "Business Analytics Dashboard",
+    desc: "Monitor active sessions, payment records, user rankings, and revenue metrics with comprehensive reporting tools.",
   },
 ];
 
@@ -37,11 +37,10 @@ export default function Home() {
       <main className="shell" style={{ paddingTop: 24 }}>
         <section className="landing-hero">
           <div className="landing-hero-left">
-            <p className="landing-kicker">WiFi Billing and Hotspot Management</p>
-            <h1>Run a professional hotspot business from one dashboard</h1>
+            <p className="landing-kicker">Professional WiFi Billing and Hotspot Management</p>
+            <h1>Streamline Your Hotspot Business Operations</h1>
             <p className="landing-subtext">
-              Configure MikroTik hotspots, publish packages, accept payments, and connect users instantly after
-              successful verification. Designed for cafes, hostels, schools, and public access networks.
+              Configure MikroTik hotspots, define service packages, process payments securely, and provide instant internet access to customers. Ideal for cafes, hotels, educational institutions, and public WiFi networks.
             </p>
             <div className="landing-cta-row">
               <Link href="/admin?mode=register" className="btn btn-primary">
@@ -53,19 +52,19 @@ export default function Home() {
             </div>
           </div>
           <div className="landing-hero-right panel">
-            <h3>Platform Highlights</h3>
+            <h3>Key Features</h3>
             <div className="landing-highlight-list">
               <div>
-                <b>Instant Access</b>
-                <p>Users connect, pay, and get internet automatically without manual approval.</p>
+                <b>Automated Access Control</b>
+                <p>Customers complete payment and receive internet access instantly without manual intervention.</p>
               </div>
               <div>
-                <b>Multi-Site Operations</b>
-                <p>Manage multiple MikroTik locations and assign dedicated package and payment settings.</p>
+                <b>Multi-Location Support</b>
+                <p>Manage multiple MikroTik installations with location-specific packages and payment configurations.</p>
               </div>
               <div>
-                <b>Recurring SaaS Billing</b>
-                <p>Track trial days, monthly subscription fees, and account status from the admin area.</p>
+                <b>Subscription Management</b>
+                <p>Monitor trial periods, recurring fees, and account status through the administrative dashboard.</p>
               </div>
             </div>
           </div>
@@ -73,16 +72,16 @@ export default function Home() {
 
         <section className="landing-stats">
           <article className="panel">
-            <h3>Package Plans</h3>
-            <p>Minutes, hourly, daily, and weekly options with speed and data control.</p>
+            <h3>Flexible Package Plans</h3>
+            <p>Configure packages by time duration with bandwidth and data usage controls.</p>
           </article>
           <article className="panel">
-            <h3>Payment Gateways</h3>
-            <p>M-Pesa STK, Till, Paybill, phone number, Paystack, and voucher redemption.</p>
+            <h3>Payment Integration</h3>
+            <p>Support for M-Pesa STK Push, Till Numbers, Paybill, and Paystack payment processing.</p>
           </article>
           <article className="panel">
-            <h3>Session Policies</h3>
-            <p>MAC/IP tracking, automatic expiry, and reconnect support before session end.</p>
+            <h3>Session Management</h3>
+            <p>MAC address and IP tracking with automatic session expiry and reconnection options.</p>
           </article>
         </section>
 
@@ -96,27 +95,27 @@ export default function Home() {
         </section>
 
         <section className="panel landing-flow">
-          <h2>Customer Connection Flow</h2>
+          <h2>Customer Connection Process</h2>
           <div className="landing-flow-grid">
             <article>
               <span>1</span>
-              <h4>Join WiFi</h4>
-              <p>User connects and captive portal opens automatically.</p>
+              <h4>Network Connection</h4>
+              <p>Customer connects to the WiFi network and the captive portal loads automatically.</p>
             </article>
             <article>
               <span>2</span>
-              <h4>Select Package</h4>
-              <p>User picks package first, then proceeds to checkout.</p>
+              <h4>Package Selection</h4>
+              <p>Customer reviews available packages and selects their preferred option.</p>
             </article>
             <article>
               <span>3</span>
-              <h4>Enter Number</h4>
-              <p>Phone number is entered on checkout page and STK prompt is triggered.</p>
+              <h4>Payment Processing</h4>
+              <p>Phone number is provided and payment is initiated through the selected gateway.</p>
             </article>
             <article>
               <span>4</span>
-              <h4>Get Connected</h4>
-              <p>Payment is verified and internet access is granted instantly.</p>
+              <h4>Internet Access</h4>
+              <p>Upon successful payment verification, internet access is granted immediately.</p>
             </article>
           </div>
         </section>

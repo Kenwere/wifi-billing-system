@@ -11,7 +11,8 @@ export async function GET(request: NextRequest) {
     request.nextUrl.searchParams.get("macAddress") ?? request.nextUrl.searchParams.get("mac") ?? "";
   const clientIp = request.nextUrl.searchParams.get("ip") ?? "";
 
-  await expireAndDisconnectSessions();
+  // Run session expiry check in background to avoid blocking the response
+  expireAndDisconnectSessions().catch((err) => console.error("Session expiry error:", err));
 
   const db = await readDb();
   const router = db.routers.find((r) => r.id === routerId && r.active);
