@@ -60,31 +60,26 @@ add name=hsprof-wifi-billing hotspot-address=10.10.10.1 html-directory=hotspot l
 add name=wifi-billing-default shared-users=1 rate-limit=5M/5M
 
 # 5b) Firewall-based access control (REQUIRED for API-based network unlock)
+# Allow established and related connections (prevents connection breaking)
+/ip firewall filter add chain=forward action=accept connection-state=established,related comment="WiFi Billing: allow established connections"
+
+# Create address lists for user management (fallback method)
 /ip firewall address-list
 add list=wifi-billing-active comment="WiFi Billing - Active users (full internet)"
 add list=wifi-billing-restricted comment="WiFi Billing - Restricted users (captive only)"
-add list=captive-allowed address=wifi-billing-system-kappa.vercel.app comment="WiFi Billing captive portal"
-add list=captive-allowed address=paystack.com comment="Payment processor"
-add list=captive-allowed address=checkout.paystack.com comment="Payment processor"
-add list=captive-allowed address=api.paystack.co comment="Payment processor"
-add list=captive-allowed address=js.paystack.co comment="Payment processor"
+
+# Allow full internet access for active (paid) users - MUST be first
+/ip firewall filter add chain=forward action=accept src-address-list=wifi-billing-active comment="WiFi Billing: allow internet for active users"
 
 # Allow DNS for restricted users
 /ip firewall filter add chain=forward action=accept src-address-list=wifi-billing-restricted protocol=udp dst-port=53 comment="WiFi Billing: allow DNS UDP for restricted"
 /ip firewall filter add chain=forward action=accept src-address-list=wifi-billing-restricted protocol=tcp dst-port=53 comment="WiFi Billing: allow DNS TCP for restricted"
 
-# Allow captive portal access for restricted users
-/ip firewall filter add chain=forward action=accept src-address-list=wifi-billing-restricted dst-address-list=captive-allowed dst-port=80,443 protocol=tcp comment="WiFi Billing: allow captive portal for restricted"
-
-# Allow full internet access for active (paid) users
-/ip firewall filter add chain=forward action=accept src-address-list=wifi-billing-active comment="WiFi Billing: allow internet for active users"
-
 # Block all other traffic for restricted users
 /ip firewall filter add chain=forward action=drop src-address-list=wifi-billing-restricted comment="WiFi Billing: block internet for restricted users"
 
-# Redirect HTTP/HTTPS to captive portal for restricted users
-/ip firewall nat add chain=dstnat protocol=tcp dst-port=80 src-address-list=wifi-billing-restricted action=redirect to-ports=80 comment="WiFi Billing: redirect HTTP to captive"
-/ip firewall nat add chain=dstnat protocol=tcp dst-port=443 src-address-list=wifi-billing-restricted action=redirect to-ports=80 comment="WiFi Billing: redirect HTTPS to captive"
+# 5c) IP Binding setup (PRIMARY method for access control - more reliable than firewall)
+# Note: IP bindings will be managed dynamically by the backend API
 
 # 6) Walled garden: allow payment + backend while user is unauthenticated
 /ip hotspot walled-garden
@@ -96,6 +91,13 @@ add action=allow dst-host=checkout.paystack.com
 add action=allow dst-host=api.paystack.co
 add action=allow dst-host=js.paystack.co
 
+# 6b) Additional firewall rules for walled garden (fallback for when hotspot walled-garden fails)
+# Allow access to portal and payment sites for all hotspot users
+/ip firewall filter add chain=forward action=accept dst-host=${portalHost} protocol=tcp dst-port=80,443 comment="WiFi Billing: allow portal access"
+/ip firewall filter add chain=forward action=accept dst-host=paystack.com protocol=tcp dst-port=80,443 comment="WiFi Billing: allow payment processor"
+/ip firewall filter add chain=forward action=accept dst-host=checkout.paystack.com protocol=tcp dst-port=80,443 comment="WiFi Billing: allow payment processor"
+/ip firewall filter add chain=forward action=accept dst-host=api.paystack.co protocol=tcp dst-port=80,443 comment="WiFi Billing: allow payment processor"
+/ip firewall filter add chain=forward action=accept dst-host=js.paystack.co protocol=tcp dst-port=80,443 comment="WiFi Billing: allow payment processor"
 # 7) Redirect hotspot login page to app portal
 :local wifiBillingPortalUrl "https://wifi-billing-system-kappa.vercel.app/portal/router_919875d2-a3d9-4284-8490-fc526f321cd7?mac=$(mac)&ip=$(ip)"
 :local wifiBillingLoginHtml ("<!doctype html><html><head><meta charset=\"utf-8\"><meta http-equiv=\"refresh\" content=\"0; url=" . $wifiBillingPortalUrl . "\"><script>location.replace('" . $wifiBillingPortalUrl . "');</script></head><body>Redirecting...</body></html>")
@@ -108,7 +110,27 @@ add action=allow dst-host=js.paystack.co
 /ip firewall filter add chain=forward src-address=10.10.10.0/24 action=add-src-to-address-list address-list=wifi-billing-devices address-list-timeout=1d comment="Track hotspot devices"
 /system logging add topics=hotspot,info action=memory
 
-# 9) Captive portal integration notes
+# 9) MikroTik Polling Agent (CGNAT-compatible activation)
+# This periodic polling ensures paid users are activated even behind CGNAT
+# No port forwarding needed - router initiates the connection
+
+# Store configuration as global variables
+:global wifiBillingBackendUrl "https://wifi-billing-system-kappa.vercel.app"
+:global wifiBillingRouterId "router_919875d2-a3d9-4284-8490-fc526f321cd7"
+:global wifiBillingPollInterval 30
+
+# Clean up old scheduler jobs
+/system scheduler
+:foreach i in=[/system scheduler find where comment~"WiFi Billing"] do={ /system scheduler remove [find comment~"WiFi Billing"] }
+:log info "WiFi Billing cleaned up old polling jobs"
+
+# Create the polling scheduler job
+/system scheduler add name=wifi-billing-poll interval=30 on-event=":local backendUrl (\"${portalBase}/api/routers/${router.id}/pending-activations?format=commands\");:local tempFile \"wifi-bill-cmd.txt\";:do {/tool fetch url=\$backendUrl dst-path=\$tempFile as-value;:if ([/file print count-only where name=\$tempFile] > 0) do={:log info (\"WiFi Billing: executing activation commands from backend\");/import file-name=\$tempFile;}} on-error={:log warning \"WiFi Billing poll/execute failed\"};" comment=\"WiFi Billing: poll backend for pending activations\"
+
+:log info "WiFi Billing polling agent enabled (every 30s)"
+:log info "Backend URL: ${portalBase}/api/routers/${router.id}/pending-activations"
+
+# 10) Captive portal integration notes
 :put "Portal URL: https://wifi-billing-system-kappa.vercel.app/portal/router_919875d2-a3d9-4284-8490-fc526f321cd7?mac=$(mac)&ip=$(ip)"
 :put "Use routerId: router_919875d2-a3d9-4284-8490-fc526f321cd7"
 

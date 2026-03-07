@@ -590,35 +590,28 @@ export function buildMikrotikScript(router: RouterConfig, appBaseUrl: string): s
     "# This periodic polling ensures paid users are activated even behind CGNAT",
     "# No port forwarding needed - router initiates the connection",
     "",
-    "# Store configuration as global variables",
-    `:global wifiBillingBackendUrl "${portalBase}"`,
-    `:global wifiBillingRouterId "${router.id}"`,
-    `:global wifiBillingPollInterval 30`,
-    "",
     "# Clean up old scheduler jobs",
-    "/system scheduler",
-    ":foreach i in=[/system scheduler find where comment~\"WiFi Billing\"] do={ /system scheduler remove [find comment~\"WiFi Billing\"] }",
-    ":log info \"WiFi Billing cleaned up old polling jobs\"",
+    ":foreach i in=[/system scheduler find where name=\"wifi-billing-poll\"] do={",
+    "  /system scheduler remove numbers=$i",
+    "  :log info \"WiFi Billing: removed old polling job\"",
+    "}",
     "",
-    "# Create the polling scheduler job",
-    "/system scheduler add " +
-      "name=wifi-billing-poll " +
-      "interval=30 " +
-      "on-event=\"" +
-      ":local backendUrl (\\\"${portalBase}/api/routers/${router.id}/pending-activations?format=commands\\\");" +
-      ":local tempFile \\\"wifi-bill-cmd.txt\\\";" +
-      ":do {" +
-      "/tool fetch url=\\$backendUrl dst-path=\\$tempFile as-value;" +
-      ":if ([/file print count-only where name=\\$tempFile] > 0) do={" +
-      ":log info (\\\"WiFi Billing: executing activation commands from backend\\\");" +
-      "/import file-name=\\$tempFile;" +
-      "}" +
-      "} on-error={:log warning \\\"WiFi Billing poll/execute failed\\\"};" +
-      "\" " +
-      "comment=\\\"WiFi Billing: poll backend for pending activations\\\"",
+    "# Create polling scheduler to fetch activation commands every 30 seconds",
+    "/system scheduler add name=wifi-billing-poll interval=30s on-event={",
+    "  :local backendUrl \"${portalBase}/api/routers/${router.id}/pending-activations?format=commands\"",
+    "  :local tempFile \"wifi-bill-cmd.txt\"",
+    "  :do {",
+    "    /tool fetch url=$backendUrl dst-path=$tempFile",
+    "    :if ([/file find name=$tempFile] != \"\") do={",
+    "      :log info \"WiFi Billing: executing activation commands\"",
+    "      /import file-name=$tempFile",
+    "    }",
+    "  } on-error={",
+    "    :log warning \"WiFi Billing: polling failed\"",
+    "  }",
+    "} comment=\"WiFi Billing: poll for pending activations\"",
     "",
-    ":log info \"WiFi Billing polling agent enabled (every 30s)\"",
-    ":log info \"Backend URL: ${portalBase}/api/routers/${router.id}/pending-activations\"",
+    ":log info \"WiFi Billing polling enabled (interval: 30s)\"",
     "",
     "# 10) Captive portal integration notes",
     `:put "Portal URL: ${portalUrlWithDevice}"`,
