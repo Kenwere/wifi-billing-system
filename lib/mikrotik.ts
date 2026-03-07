@@ -586,7 +586,41 @@ export function buildMikrotikScript(router: RouterConfig, appBaseUrl: string): s
       ? ["/system logging add topics=hotspot,info action=memory"]
       : []),
     "",
-    "# 9) Captive portal integration notes",
+    "# 9) MikroTik Polling Agent (CGNAT-compatible activation)",
+    "# This periodic polling ensures paid users are activated even behind CGNAT",
+    "# No port forwarding needed - router initiates the connection",
+    "",
+    "# Store configuration as global variables",
+    `:global wifiBillingBackendUrl "${portalBase}"`,
+    `:global wifiBillingRouterId "${router.id}"`,
+    `:global wifiBillingPollInterval 30`,
+    "",
+    "# Clean up old scheduler jobs",
+    "/system scheduler",
+    ":foreach i in=[/system scheduler find where comment~\"WiFi Billing\"] do={ /system scheduler remove [find comment~\"WiFi Billing\"] }",
+    ":log info \"WiFi Billing cleaned up old polling jobs\"",
+    "",
+    "# Create the polling scheduler job",
+    "/system scheduler add " +
+      "name=wifi-billing-poll " +
+      "interval=30 " +
+      "on-event=\"" +
+      ":local backendUrl (\\\"${portalBase}/api/routers/${router.id}/pending-activations?format=commands\\\");" +
+      ":local tempFile \\\"wifi-bill-cmd.txt\\\";" +
+      ":do {" +
+      "/tool fetch url=\\$backendUrl dst-path=\\$tempFile as-value;" +
+      ":if ([/file print count-only where name=\\$tempFile] > 0) do={" +
+      ":log info (\\\"WiFi Billing: executing activation commands from backend\\\");" +
+      "/import file-name=\\$tempFile;" +
+      "}" +
+      "} on-error={:log warning \\\"WiFi Billing poll/execute failed\\\"};" +
+      "\" " +
+      "comment=\\\"WiFi Billing: poll backend for pending activations\\\"",
+    "",
+    ":log info \"WiFi Billing polling agent enabled (every 30s)\"",
+    ":log info \"Backend URL: ${portalBase}/api/routers/${router.id}/pending-activations\"",
+    "",
+    "# 10) Captive portal integration notes",
     `:put "Portal URL: ${portalUrlWithDevice}"`,
     `:put "Use routerId: ${router.id}"`,
     "",
