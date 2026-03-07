@@ -509,7 +509,7 @@ export function buildMikrotikScript(router: RouterConfig, appBaseUrl: string): s
       ? [
           ...apiAllowIps.map(
             (ip) =>
-              `/ip firewall filter add chain=input in-interface=$moonWanIf src-address=${ip} protocol=tcp dst-port=8728 action=accept comment=\"MoonConnect API allow ${ip}\"`,
+              `/ip firewall filter add chain=input in-interface=$moonWanIf src-address=${ip} protocol=tcp dst-port=8728 action=accept comment="MoonConnect API allow ${ip}"`,
           ),
           ...apiAllowIps.map((ip) => `:log info "MoonConnect applied API allow rule for ${ip}"`),
           `/ip firewall filter add chain=input in-interface=$moonWanIf protocol=tcp dst-port=8728 action=drop comment="MoonConnect API drop others"`,
@@ -547,7 +547,7 @@ export function buildMikrotikScript(router: RouterConfig, appBaseUrl: string): s
     "/ip firewall filter add chain=forward action=drop src-address-list=wifi-billing-restricted comment=\"WiFi Billing: block internet for restricted users\"",
     "",
     "# 5c) IP Binding setup (PRIMARY method for access control - more reliable than firewall)",
-    "# Note: IP bindings will be managed dynamically by the backend API",
+    "# Note: IP bindings will be managed dynamically by the polling script",
     "",
     "# 6) Walled garden: allow payment + backend while user is unauthenticated",
     "/ip hotspot walled-garden",
@@ -561,11 +561,11 @@ export function buildMikrotikScript(router: RouterConfig, appBaseUrl: string): s
     "",
     "# 6b) Additional firewall rules for walled garden (fallback for when hotspot walled-garden fails)",
     "# Allow access to portal and payment sites for all hotspot users",
-    "/ip firewall filter add chain=forward action=accept dst-host=${portalHost} protocol=tcp dst-port=80,443 comment=\"WiFi Billing: allow portal access\"",
+    `/ip firewall filter add chain=forward action=accept dst-host=${portalHost} protocol=tcp dst-port=80,443 comment="WiFi Billing: allow portal access"`,
     ...(usesPaystack
       ? paystackHosts
           .filter((host) => !host.includes("*"))
-          .map((host) => `/ip firewall filter add chain=forward action=accept dst-host=${host} protocol=tcp dst-port=80,443 comment=\"WiFi Billing: allow payment processor\"`)
+          .map((host) => `/ip firewall filter add chain=forward action=accept dst-host=${host} protocol=tcp dst-port=80,443 comment="WiFi Billing: allow payment processor"`)
       : []),
     "# 7) Redirect hotspot login page to app portal",
     `:local wifiBillingPortalUrl "${portalUrlWithDevice}"`,
@@ -597,14 +597,17 @@ export function buildMikrotikScript(router: RouterConfig, appBaseUrl: string): s
     "}",
     "",
     "# Create polling scheduler to fetch activation commands every 30 seconds",
+    "# IMPORTANT: Values are hardcoded for CGNAT compatibility - router initiates connection",
     "/system scheduler add name=wifi-billing-poll interval=30s on-event={",
-    "  :local backendUrl \"${portalBase}/api/routers/${router.id}/pending-activations?format=commands\"",
+    `  :local backendUrl "${portalBase}/api/routers/${router.id}/pending-activations"`,
     "  :local tempFile \"wifi-bill-cmd.txt\"",
     "  :do {",
     "    /tool fetch url=$backendUrl dst-path=$tempFile",
     "    :if ([/file find name=$tempFile] != \"\") do={",
     "      :log info \"WiFi Billing: executing activation commands\"",
     "      /import file-name=$tempFile",
+    "      :delay 2s",
+    "      /file remove $tempFile",
     "    }",
     "  } on-error={",
     "    :log warning \"WiFi Billing: polling failed\"",
