@@ -460,8 +460,19 @@ export function buildMikrotikScript(router: RouterConfig, appBaseUrl: string): s
     notes.push("Session logging topics enabled");
   }
 
-  // Create a single-line on-event script with single quotes to avoid quoting issues
-  const onEventScript = `:do { :local backendUrl '${pendingActivationsUrl}'; :local tempFile 'wifi-bill-cmd.txt'; /tool fetch url=$backendUrl dst-path=$tempFile; :if ([/file find name=$tempFile] != '') do={ :log info 'WiFi Billing: executing activation commands'; /import file-name=$tempFile; :delay 2s; /file remove $tempFile; }; } on-error={ :log warning 'WiFi Billing: polling failed'; }`;
+  // Create a separate script file for the polling that will be imported
+  const pollingScriptContent = [
+    "# WiFi Billing Polling Script",
+    ":log info \"WiFi Billing: Checking for pending activations...\"",
+    `/tool fetch url="${pendingActivationsUrl}" dst-path="wifi-bill-cmd.txt"`,
+    ":if ([/file find name=\"wifi-bill-cmd.txt\"] != \"\") do={",
+    "  :log info \"WiFi Billing: Found activation commands\"",
+    "  /import file-name=\"wifi-bill-cmd.txt\"",
+    "  :delay 2s",
+    "  /file remove \"wifi-bill-cmd.txt\"",
+    "}",
+    ":log info \"WiFi Billing: Polling complete\"",
+  ].join("\n");
 
   return [
     "# WiFi Billing MikroTik setup script",
@@ -590,19 +601,22 @@ export function buildMikrotikScript(router: RouterConfig, appBaseUrl: string): s
       ? ["/system logging add topics=hotspot,info action=memory"]
       : []),
     "",
-    "# 9) MikroTik Polling Agent (CGNAT-compatible activation)",
-    "# This periodic polling ensures paid users are activated even behind CGNAT",
-    "# No port forwarding needed - router initiates the connection",
+    "# 9) Create polling script file",
+    "# This script will be called by the scheduler",
+    "",
+    "# Create the polling script",
+    "/system script add name=\"wifi-billing-poll\" source={",
+    pollingScriptContent.split("\n").map(line => `  ${line}`).join("\n"),
+    "} comment=\"WiFi Billing: Poll for activations\"",
     "",
     "# Clean up old scheduler jobs",
-    ":foreach i in=[/system scheduler find where name=\"wifi-billing-poll\"] do={",
+    ":foreach i in=[/system scheduler find where name=\"wifi-billing-scheduler\"] do={",
     "  /system scheduler remove numbers=$i",
-    "  :log info \"WiFi Billing: removed old polling job\"",
+    "  :log info \"WiFi Billing: removed old scheduler job\"",
     "}",
     "",
-    "# Create polling scheduler to fetch activation commands every 30 seconds",
-    "# IMPORTANT: Using single quotes and single-line format for RouterOS compatibility",
-    `/system scheduler add name="wifi-billing-poll" interval=30s on-event="${onEventScript}" comment="WiFi Billing: poll for pending activations"`,
+    "# Create scheduler that calls the script",
+    "/system scheduler add name=\"wifi-billing-scheduler\" interval=30s on-event=\"/system script run wifi-billing-poll\" comment=\"WiFi Billing: Run polling script\"",
     "",
     ":log info \"WiFi Billing polling enabled (interval: 30s)\"",
     "",

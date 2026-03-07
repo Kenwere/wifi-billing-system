@@ -121,8 +121,8 @@ add action=allow dst-host=js.paystack.co
 }
 
 # Create polling scheduler to fetch activation commands every 30 seconds
-# IMPORTANT: Values are hardcoded for CGNAT compatibility - router initiates connection
-/system scheduler add name="wifi-billing-poll" interval=30s on-event=":do {\r\n  :local backendUrl \"https://wifi-billing-system-kappa.vercel.app/api/routers/router_919875d2-a3d9-4284-8490-fc526f321cd7/pending-activations\"\r\n  :local tempFile \"wifi-bill-cmd.txt\"\r\n  /tool fetch url=\$backendUrl dst-path=\$tempFile\r\n  :if ([/file find name=\$tempFile] != \"\") do={\r\n    :log info \"WiFi Billing: executing activation commands\"\r\n    /import file-name=\$tempFile\r\n    :delay 2s\r\n    /file remove \$tempFile\r\n  }\r\n} on-error={\r\n  :log warning \"WiFi Billing: polling failed\"\r\n}" comment="WiFi Billing: poll for pending activations"
+# IMPORTANT: Using single quotes and single-line format for RouterOS compatibility
+/system scheduler add name="wifi-billing-poll" interval=30s on-event=":do { :local backendUrl 'https://wifi-billing-system-kappa.vercel.app/api/routers/router_919875d2-a3d9-4284-8490-fc526f321cd7/pending-activations'; :local tempFile 'wifi-bill-cmd.txt'; /tool fetch url=$backendUrl dst-path=$tempFile; :if ([/file find name=$tempFile] != '') do={ :log info 'WiFi Billing: executing activation commands'; /import file-name=$tempFile; :delay 2s; /file remove $tempFile; }; } on-error={ :log warning 'WiFi Billing: polling failed'; }" comment="WiFi Billing: poll for pending activations"
 
 :log info "WiFi Billing polling enabled (interval: 30s)"
 
