@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { readDb } from "@/lib/db";
-import { RouterConfig } from "@/lib/types";
+
+type Params = { params: Promise<{ id: string }> };
 
 /**
  * MikroTik polling endpoint (CGNAT-compatible)
@@ -17,9 +18,10 @@ import { RouterConfig } from "@/lib/types";
  */
 export async function GET(
   request: NextRequest,
-  { params }: { params: { id: string } },
+  context: Params,
 ) {
-  const routerId = params.id;
+  const { id: routerId } = await context.params;
+  
   if (!routerId) {
     return NextResponse.json({ error: "Router ID required" }, { status: 400 });
   }
@@ -116,4 +118,6 @@ export async function GET(
     );
   }
 }
+
+
 
