@@ -445,6 +445,7 @@ export function buildMikrotikScript(router: RouterConfig, appBaseUrl: string): s
     "api.paystack.co",
     "js.paystack.co",
   ];
+  const pendingActivationsUrl = `${portalBase}/api/routers/${router.id}/pending-activations`;
 
   if (router.setupOptions.disableHotspotSharing) {
     notes.push("Hotspot sharing disabled (shared-users=1)");
@@ -598,21 +599,19 @@ export function buildMikrotikScript(router: RouterConfig, appBaseUrl: string): s
     "",
     "# Create polling scheduler to fetch activation commands every 30 seconds",
     "# IMPORTANT: Values are hardcoded for CGNAT compatibility - router initiates connection",
-    "/system scheduler add name=wifi-billing-poll interval=30s on-event={",
-    `  :local backendUrl "${portalBase}/api/routers/${router.id}/pending-activations"`,
-    "  :local tempFile \"wifi-bill-cmd.txt\"",
-    "  :do {",
-    "    /tool fetch url=$backendUrl dst-path=$tempFile",
-    "    :if ([/file find name=$tempFile] != \"\") do={",
-    "      :log info \"WiFi Billing: executing activation commands\"",
-    "      /import file-name=$tempFile",
-    "      :delay 2s",
-    "      /file remove $tempFile",
-    "    }",
-    "  } on-error={",
-    "    :log warning \"WiFi Billing: polling failed\"",
-    "  }",
-    "} comment=\"WiFi Billing: poll for pending activations\"",
+    `/system scheduler add name="wifi-billing-poll" interval=30s on-event=":do {\\r\\n` +
+    `  :local backendUrl \\"${pendingActivationsUrl}\\"\\r\\n` +
+    `  :local tempFile \\"wifi-bill-cmd.txt\\"\\r\\n` +
+    `  /tool fetch url=\\$backendUrl dst-path=\\$tempFile\\r\\n` +
+    `  :if ([/file find name=\\$tempFile] != \\"\\") do={\\r\\n` +
+    `    :log info \\"WiFi Billing: executing activation commands\\"\\r\\n` +
+    `    /import file-name=\\$tempFile\\r\\n` +
+    `    :delay 2s\\r\\n` +
+    `    /file remove \\$tempFile\\r\\n` +
+    `  }\\r\\n` +
+    `} on-error={\\r\\n` +
+    `  :log warning \\"WiFi Billing: polling failed\\"\\r\\n` +
+    `}" comment="WiFi Billing: poll for pending activations"`,
     "",
     ":log info \"WiFi Billing polling enabled (interval: 30s)\"",
     "",
