@@ -1,5 +1,6 @@
 import { mutateDb, readDb } from "@/lib/db";
-import { disconnectInternetAccess, grantInternetAccess } from "@/lib/mikrotik";
+import { disconnectInternetAccess, ensureUserInRestrictedList, grantInternetAccess } from "@/lib/mikrotik";
+import { getRadiusServer } from "@/lib/radius";
 import { PaymentMethod, Session } from "@/lib/types";
 import {
   minutesFromNow,
@@ -119,7 +120,28 @@ export async function processPaymentAndActivateSession(input: {
       reference: randomId("ref"),
     });
 
-    await grantInternetAccess(router, session);
+    // Grant internet access to the user after payment
+    try {
+      await grantInternetAccess(router, session);
+      console.log(`[Billing] Successfully granted internet access to ${input.ipAddress} on router ${router.id}`);
+      
+      // Cache session in RADIUS for WiFi authentication
+      try {
+        const radiusServer = getRadiusServer();
+        // Use phone number as RADIUS username
+        radiusServer.cacheSession(phone, session);
+        console.log(`[Billing] Cached session in RADIUS server for ${phone}`);
+      } catch (radiusError) {
+        const radiusMsg = radiusError instanceof Error ? radiusError.message : String(radiusError);
+        console.warn(`[Billing] Failed to cache session in RADIUS: ${radiusMsg}`);
+        // Don't fail if RADIUS caching fails - it's optional
+      }
+    } catch (error) {
+      const errorMsg = error instanceof Error ? error.message : String(error);
+      console.error(`[Billing] Failed to grant internet access: ${errorMsg}`);
+      // Log error but don't fail the payment - user can try reconnecting
+      throw new Error(`Payment processed but internet access grant failed: ${errorMsg}`);
+    }
 
     return {
       session,

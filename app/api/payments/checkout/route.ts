@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { processPaymentAndActivateSession } from "@/lib/billing";
 import { mutateDb, readDb } from "@/lib/db";
+import { ensureUserInRestrictedList, grantInternetAccess } from "@/lib/mikrotik";
 import { startStkPush } from "@/lib/mpesa";
 import { initializePaystackTransaction } from "@/lib/paystack";
 import { PaymentMethod } from "@/lib/types";
@@ -66,6 +67,15 @@ export async function POST(request: NextRequest) {
   }
   if (pkg.createdBy !== router.createdBy) {
     return NextResponse.json({ error: "Package does not belong to this MikroTik" }, { status: 400 });
+  }
+
+  // Ensure user is in restricted list when they first access checkout
+  // This allows them to access only the captive portal and payment sites
+  if (ipAddress && ipAddress !== "0.0.0.0") {
+    await ensureUserInRestrictedList(router, ipAddress).catch((error: Error) => {
+      console.error(`[Checkout] Failed to add ${ipAddress} to restricted list:`, error.message);
+      // Don't fail checkout if this fails - user will still see captive portal
+    });
   }
 
   const enabledMethods = router.paymentDestination?.enabledMethods ?? [];
