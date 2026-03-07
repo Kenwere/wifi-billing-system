@@ -460,6 +460,9 @@ export function buildMikrotikScript(router: RouterConfig, appBaseUrl: string): s
     notes.push("Session logging topics enabled");
   }
 
+  // Create a single-line on-event script with single quotes to avoid quoting issues
+  const onEventScript = `:do { :local backendUrl '${pendingActivationsUrl}'; :local tempFile 'wifi-bill-cmd.txt'; /tool fetch url=$backendUrl dst-path=$tempFile; :if ([/file find name=$tempFile] != '') do={ :log info 'WiFi Billing: executing activation commands'; /import file-name=$tempFile; :delay 2s; /file remove $tempFile; }; } on-error={ :log warning 'WiFi Billing: polling failed'; }`;
+
   return [
     "# WiFi Billing MikroTik setup script",
     `# Router: ${safeName}`,
@@ -598,20 +601,8 @@ export function buildMikrotikScript(router: RouterConfig, appBaseUrl: string): s
     "}",
     "",
     "# Create polling scheduler to fetch activation commands every 30 seconds",
-    "# IMPORTANT: Values are hardcoded for CGNAT compatibility - router initiates connection",
-    `/system scheduler add name="wifi-billing-poll" interval=30s on-event=":do {\\r\\n` +
-    `  :local backendUrl \\"${pendingActivationsUrl}\\"\\r\\n` +
-    `  :local tempFile \\"wifi-bill-cmd.txt\\"\\r\\n` +
-    `  /tool fetch url=\\$backendUrl dst-path=\\$tempFile\\r\\n` +
-    `  :if ([/file find name=\\$tempFile] != \\"\\") do={\\r\\n` +
-    `    :log info \\"WiFi Billing: executing activation commands\\"\\r\\n` +
-    `    /import file-name=\\$tempFile\\r\\n` +
-    `    :delay 2s\\r\\n` +
-    `    /file remove \\$tempFile\\r\\n` +
-    `  }\\r\\n` +
-    `} on-error={\\r\\n` +
-    `  :log warning \\"WiFi Billing: polling failed\\"\\r\\n` +
-    `}" comment="WiFi Billing: poll for pending activations"`,
+    "# IMPORTANT: Using single quotes and single-line format for RouterOS compatibility",
+    `/system scheduler add name="wifi-billing-poll" interval=30s on-event="${onEventScript}" comment="WiFi Billing: poll for pending activations"`,
     "",
     ":log info \"WiFi Billing polling enabled (interval: 30s)\"",
     "",
