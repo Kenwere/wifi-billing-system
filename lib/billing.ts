@@ -169,7 +169,13 @@ export async function expireAndDisconnectSessions() {
       );
       const router = db.routers.find((r) => r.id === session.routerId);
       if (router) {
-        await disconnectInternetAccess(router, session.macAddress);
+        try {
+          await disconnectInternetAccess(router, session.macAddress);
+        } catch (error) {
+          const errorMsg = error instanceof Error ? error.message : String(error);
+          console.warn(`[Billing] Failed to disconnect session ${session.id} from router ${router.id}: ${errorMsg}`);
+          // Continue processing other sessions even if disconnect fails
+        }
       }
       expiredCount += 1;
     }
@@ -201,7 +207,13 @@ export async function disconnectSession(
     );
     const router = db.routers.find((r) => r.id === session.routerId);
     if (router) {
-      await disconnectInternetAccess(router, session.macAddress);
+      try {
+        await disconnectInternetAccess(router, session.macAddress);
+      } catch (error) {
+        const errorMsg = error instanceof Error ? error.message : String(error);
+        console.warn(`[Billing] Failed to disconnect session ${sessionId}: ${errorMsg}`);
+        // Continue - session status is already updated in database
+      }
     }
     return session;
   });
